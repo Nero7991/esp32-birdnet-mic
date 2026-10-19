@@ -3,6 +3,7 @@
 #include <esp_wifi.h>
 #include <WiFiManager.h>
 #include "driver/i2s_std.h"
+#include "driver/i2s_pdm.h"
 #include <ArduinoOTA.h>
 #include <Preferences.h>
 #include <ESPmDNS.h>
@@ -13,8 +14,11 @@
 #include <esp_mac.h>
 #include <esp_sleep.h>
 #include <esp_system.h>
+#include <esp_timer.h>
+#include <esp_heap_caps.h>
 #include <WiFiUdp.h>
 #include <errno.h>
+#include <atomic>
 #include <sys/socket.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -22,12 +26,49 @@
 #include "WebUI.h"
 #include "TimeZoneSchedule.h"
 #include "DiscoveryProgress.h"
+#include "MqttDiscovery.h"
 #include "DiscoveryClient.h"
 #include "CooperativeTcpWriter.h"
 #include "StreamHealth.h"
+#include "AudioDiagnostics.h"
+#include "MicrophoneSignal.h"
+#include "BrowserAudio.h"
+#include "ThermalRecovery.h"
+#include "AudioReserve.h"
+#define FXAUDIO_HOT IRAM_ATTR __attribute__((noinline))
+#include "FixedAudio.h"
+
+#if SOC_I2S_SUPPORTS_PDM2PCM
+#define MIC_PDM_HARDWARE 1
+#else
+#define MIC_PDM_HARDWARE 0
+#endif
+
+// PDM capability follows the installed ESP-IDF target, not a guessed board name.
+#if SOC_I2S_SUPPORTS_PDM_RX && !SOC_I2S_SUPPORTS_PDM2PCM
+#define MIC_PDM_SOFTWARE 1
+#define PDMSW_HOT IRAM_ATTR __attribute__((noinline))
+#include "PdmCapture.h"
+struct PdmReadBuffers {
+    uint8_t bytes[2048];
+    uint16_t words[1025]; // +1 for a carried byte from a short DMA read
+};
+static pdmsw::Decimator* pdmDecimator = nullptr;
+static PdmReadBuffers* pdmReadBuffers = nullptr;
+static pdmsw::WordFramer pdmFramer;
+static pdmsw::WordRateDetector pdmWordRate;
+static uint32_t pdmReadChunks = 0;
+static std::atomic<uint8_t> pdmDetectedStride{0};
+static std::atomic<uint8_t> pdmStrideLogPending{0};
+static std::atomic<uint8_t> pdmDetectedOrder{0};
+#else
+#define MIC_PDM_SOFTWARE 0
+#endif
+static constexpr uint32_t PDM_SAMPLE_RATE = 48000;
+static constexpr uint32_t PDM_CLOCK_HZ = PDM_SAMPLE_RATE * 64;
 
 // ================== SETTINGS (ESP32 RTSP Mic for BirdNET-Go / BirdNET-Pi) ==================
-#define FW_VERSION "1.26"
+#define FW_VERSION "1.30"
 // Expose FW version as a global C string for WebUI/API
 const char* FW_VERSION_STR = FW_VERSION;
 // Build timestamp for diagnostics (compile time)
@@ -147,7 +188,8 @@ enum StreamTarget : uint8_t {
 
 enum MicFormat : uint8_t {
     MIC_FORMAT_PHILIPS = 0,  // ICS-43434 / INMP441
-    MIC_FORMAT_MSB = 1       // Adafruit SPH0645LM4H
+    MIC_FORMAT_MSB = 1,      // Adafruit SPH0645LM4H
+    MIC_FORMAT_PDM = 2       // IM73D122, 48 kHz PCM
 };
 
 static constexpr uint8_t DEFAULT_MIC_FORMAT = MIC_FORMAT_PHILIPS;
@@ -216,7 +258,56 @@ struct ClientSession {
 };
 
 static const char* micFormatName(uint8_t format) {
+    if (format == MIC_FORMAT_PDM) return "PDM";
     return format == MIC_FORMAT_MSB ? "SPH0645/MSB" : "ICS43434/Philips";
+}
+
+bool pdmMicSupported() {
+#if SOC_I2S_SUPPORTS_PDM_RX
+    return true;
+#else
+    return false;
+#endif
+}
+
+const char* pdmDecoderName() {
+#if SOC_I2S_SUPPORTS_PDM2PCM
+    return "hardware";
+#elif MIC_PDM_SOFTWARE
+    return "software";
+#else
+    return "unavailable";
+#endif
+}
+
+uint8_t pdmRawWordStride() {
+#if MIC_PDM_SOFTWARE
+    return pdmDetectedStride.load(std::memory_order_relaxed);
+#else
+    return 0;
+#endif
+}
+
+const char* pdmRawBitOrder() {
+#if MIC_PDM_SOFTWARE
+    uint8_t order = pdmDetectedOrder.load(std::memory_order_relaxed);
+    return order == pdmsw::ORDER_MSB_FIRST ? "msb" : order == pdmsw::ORDER_LSB_FIRST ? "lsb" : "detecting";
+#else
+    return "hardware";
+#endif
+}
+
+static void releasePdmCapture() {
+#if MIC_PDM_SOFTWARE
+    free(pdmDecimator); pdmDecimator = nullptr;
+    free(pdmReadBuffers); pdmReadBuffers = nullptr;
+    pdmFramer.reset();
+    pdmWordRate.reset();
+    pdmReadChunks = 0;
+    pdmDetectedStride.store(0, std::memory_order_relaxed);
+    pdmStrideLogPending.store(0, std::memory_order_relaxed);
+    pdmDetectedOrder.store(0, std::memory_order_relaxed);
+#endif
 }
 
 ClientSession clients[MAX_CLIENTS];
@@ -281,6 +372,8 @@ uint16_t currentBufferSize = DEFAULT_BUFFER_SIZE;
 uint8_t i2sShiftBits = 12;  // (1) compile-time default respected on first boot
 uint8_t micFormat = DEFAULT_MIC_FORMAT;
 
+MicrophoneSignal microphoneSignal;
+
 // -- Audio metering / clipping diagnostics
 uint16_t lastPeakAbs16 = 0;       // last block peak absolute value (0..32767)
 uint32_t audioClipCount = 0;      // total blocks where clipping occurred
@@ -288,20 +381,11 @@ bool audioClippedLastBlock = false; // clipping occurred in last processed block
 uint16_t peakHoldAbs16 = 0;       // peak hold (recent window)
 unsigned long peakHoldUntilMs = 0; // when to clear hold
 
-// -- High-pass filter (biquad) to cut low-frequency rumble
-struct Biquad {
-    float b0{1.0f}, b1{0.0f}, b2{0.0f}, a1{0.0f}, a2{0.0f};
-    float x1{0.0f}, x2{0.0f}, y1{0.0f}, y2{0.0f};
-    inline float process(float x) {
-        float y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
-        x2 = x1; x1 = x; y2 = y1; y1 = y;
-        return y;
-    }
-    inline void reset() { x1 = x2 = y1 = y2 = 0.0f; }
-};
+// The audio producer owns all DSP state. HTTP handlers only publish settings.
 bool highpassEnabled = DEFAULT_HPF_ENABLED;
 uint16_t highpassCutoffHz = DEFAULT_HPF_CUTOFF_HZ;
-Biquad hpf;
+fxaudio::BiquadQ28 hpf{};
+bool hpfConfigEnabled = false;
 uint32_t hpfConfigSampleRate = 0;
 uint16_t hpfConfigCutoff = 0;
 
@@ -344,6 +428,8 @@ String overheatLastReason = "";
 String overheatLastTimestamp = "";
 bool overheatSensorFault = false;
 bool overheatLatched = false;
+bool overheatAutoResumeEnabled = false;
+ThermalRecovery thermalRecovery;
 
 // -- Scheduled reset
 bool scheduledResetEnabled = false;
@@ -392,6 +478,7 @@ void scheduleWifiReconnect(const uint8_t *bssid, uint32_t delayMs);
 void mqttRequestReconnect(bool forceDiscovery);
 void mqttPublishDiscoverySoon();
 void saveAudioSettings();
+void cancelThermalResume();
 
 // -- WiFi TX power (configurable)
 float wifiTxPowerDbm = DEFAULT_WIFI_TX_DBM;
@@ -406,7 +493,16 @@ uint32_t wifiReconnectCount = 0;
 uint32_t restartCounter = 0;
 String rebootReason = "unknown";
 uint32_t audioI2SErrorCount = 0;
-volatile uint32_t audioRingBufferDropCount = 0;
+std::atomic<uint32_t> audioProcessingLoadSnapshot{0};
+static DRAM_ATTR portMUX_TYPE audioDmaMux = portMUX_INITIALIZER_UNLOCKED;
+static DRAM_ATTR uint32_t audioDmaOverrunTotal = 0; // ISR-only writer, protected by audioDmaMux
+static DRAM_ATTR bool audioDmaCountingEnabled = false;
+static bool audioDmaCallbackAvailable = false;
+static RecentDmaOverruns audioDmaWindow;
+
+// Shared between capture, RTSP recovery and Web UI; no other state is published
+// through this counter, so relaxed ordering is sufficient.
+std::atomic<uint32_t> audioRingBufferDropCount{0};
 uint32_t audioRingBufferChunkCount = 0;
 uint32_t audioRingBufferFlushCount = 0;
 bool audioRingBufferFlushPending = false;
@@ -893,6 +989,8 @@ static String mqttBuildStateJson() {
     json += "\"stream2_last_play_age_s\":" + String(streamLastPlayAge[1]) + ",";
     json += "\"sample_rate\":" + String(currentSampleRate) + ",";
     json += "\"audio_format\":\"L16/mono\",";
+    json += "\"mic_signal\":\"" + String(MicrophoneSignal::name(microphoneSignal.state(nowMs, audioProducerRunning && !audioProducerStopRequested))) + "\",";
+    json += "\"mic_flatline_sec\":" + String(microphoneSignal.flatSeconds(nowMs, audioProducerRunning && !audioProducerStopRequested)) + ",";
     json += "\"buffer_size\":" + String(currentBufferSize) + ",";
     json += "\"gain\":" + String(currentGainFactor, 2) + ",";
     json += "\"client\":\"" + mqttJsonEscape(getRtspClientSummary()) + "\",";
@@ -912,45 +1010,6 @@ static bool mqttPublishDiscoveryConfig(const String &component, const String &ob
     return mqttClient.publish(topic.c_str(), payload.c_str(), true);
 }
 
-struct MqttDiscoveryEntity {
-    const char *component;
-    const char *objectId;
-};
-
-static const MqttDiscoveryEntity MQTT_DISCOVERY_ENTITIES[] = {
-    {"sensor", "wifi_rssi"},
-    {"sensor", "heap_kb"},
-    {"sensor", "packet_rate"},
-    {"sensor", "temperature_c"},
-    {"sensor", "max_temperature_c"},
-    {"sensor", "uptime_s"},
-    {"binary_sensor", "streaming"},
-    {"switch", "rtsp_server"},
-    {"sensor", "rtsp_client"},
-    {"sensor", "fw_version"},
-    {"sensor", "fw_build"},
-    {"sensor", "reboot_reason"},
-    {"sensor", "restart_counter"},
-    {"sensor", "wifi_ssid"},
-    {"sensor", "wifi_reconnect_count"},
-    {"sensor", "stream_uptime_s"},
-    {"sensor", "client_count"},
-    {"switch", "stream1_enabled"},
-    {"switch", "stream2_enabled"},
-    {"binary_sensor", "stream1_streaming"},
-    {"binary_sensor", "stream2_streaming"},
-    {"sensor", "stream1_clients"},
-    {"sensor", "stream2_clients"},
-    {"sensor", "stream1_packet_rate"},
-    {"sensor", "stream2_packet_rate"},
-    {"sensor", "stream1_url"},
-    {"sensor", "stream2_url"},
-    {"select", "stream1_target"},
-    {"select", "stream2_target"},
-    {"sensor", "sample_rate_hz"},
-    {"sensor", "audio_format"},
-    {"button", "reboot"},
-};
 
 static bool mqttStatePublishPending = false;
 
@@ -975,15 +1034,28 @@ static bool mqttPublishState(bool force) {
     return ok;
 }
 
-// Send one retained message per step, including legacy cleanup. No burst of
-// discovery traffic in the audio loop, and failed steps retry after a minute.
+static String mqttDiscoveryCommandTopic(mqtt_discovery::Command command) {
+    using mqtt_discovery::Command;
+    switch (command) {
+    case Command::Rtsp: return mqttCmdRtspTopic();
+    case Command::Reboot: return mqttCmdRebootTopic();
+    case Command::Stream1Enabled: return mqttCmdStreamEnabledTopic(0);
+    case Command::Stream2Enabled: return mqttCmdStreamEnabledTopic(1);
+    case Command::Stream1Target: return mqttCmdStreamTargetTopic(0);
+    case Command::Stream2Target: return mqttCmdStreamTargetTopic(1);
+    default: return String();
+    }
+}
+
+// Keep legacy cleanup, retained messages and one-message-per-step pacing.
 static bool mqttPublishDiscoveryStep(uint16_t step) {
-    constexpr uint16_t count = sizeof(MQTT_DISCOVERY_ENTITIES) / sizeof(MQTT_DISCOVERY_ENTITIES[0]);
+    constexpr uint16_t count = mqtt_discovery::entityCount;
     static_assert(count * 2 + 2 == DiscoveryProgress::total, "Discovery step count mismatch");
+    if (step >= DiscoveryProgress::total) return false;
     if (step < count) {
-        const auto &entity = MQTT_DISCOVERY_ENTITIES[step];
-        String topic = mqttDiscoveryPrefix + "/" + entity.component + "/esp32mic_000000000000/" + entity.objectId + "/config";
+        const auto& entity = mqtt_discovery::entities[step];
         if (mqttDeviceId == "esp32mic_000000000000") return true;
+        String topic = mqttDiscoveryPrefix + "/" + entity.component + "/esp32mic_000000000000/" + entity.objectId + "/config";
         return mqttClient.publish(topic.c_str(), "", true);
     }
     if (step < count + 2) {
@@ -992,115 +1064,10 @@ static bool mqttPublishDiscoveryStep(uint16_t step) {
         if (topic == mqttAvailabilityTopic()) return true;
         return mqttClient.publish(topic.c_str(), "", true);
     }
-    String dev = mqttBuildDeviceJson();
-    String st = mqttStateTopic();
-    String av = mqttAvailabilityTopic();
-    String cmdRtsp = mqttCmdRtspTopic();
-    String cmdReboot = mqttCmdRebootTopic();
-    String cmdS1Enabled = mqttCmdStreamEnabledTopic(0);
-    String cmdS2Enabled = mqttCmdStreamEnabledTopic(1);
-    String cmdS1Target = mqttCmdStreamTargetTopic(0);
-    String cmdS2Target = mqttCmdStreamTargetTopic(1);
-    String p;
-    switch (step - count - 2) {
-    case 0:
-        p = "{\"name\":\"WiFi RSSI\",\"uniq_id\":\"" + mqttDeviceId + "_wifi_rssi\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.wifi_rssi }}\",\"unit_of_meas\":\"dBm\",\"dev_cla\":\"signal_strength\",\"stat_cla\":\"measurement\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("sensor", "wifi_rssi", p);
-    case 1:
-        p = "{\"name\":\"Free Heap\",\"uniq_id\":\"" + mqttDeviceId + "_heap_kb\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.free_heap_kb }}\",\"unit_of_meas\":\"KB\",\"stat_cla\":\"measurement\",\"ent_cat\":\"diagnostic\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("sensor", "heap_kb", p);
-    case 2:
-        p = "{\"name\":\"Packet Rate\",\"uniq_id\":\"" + mqttDeviceId + "_pkt_rate\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.current_rate_pkt_s }}\",\"unit_of_meas\":\"pkt/s\",\"stat_cla\":\"measurement\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("sensor", "packet_rate", p);
-    case 3:
-        p = "{\"name\":\"Temperature\",\"uniq_id\":\"" + mqttDeviceId + "_temp_c\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.temperature_c }}\",\"unit_of_meas\":\"\u00B0C\",\"dev_cla\":\"temperature\",\"stat_cla\":\"measurement\",\"ent_cat\":\"diagnostic\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("sensor", "temperature_c", p);
-    case 4:
-        p = "{\"name\":\"Peak Temperature\",\"uniq_id\":\"" + mqttDeviceId + "_max_temp_c\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.max_temperature_c }}\",\"unit_of_meas\":\"\u00B0C\",\"dev_cla\":\"temperature\",\"stat_cla\":\"measurement\",\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:thermometer-high\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("sensor", "max_temperature_c", p);
-    case 5:
-        p = "{\"name\":\"Uptime\",\"uniq_id\":\"" + mqttDeviceId + "_uptime_s\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.uptime_s }}\",\"unit_of_meas\":\"s\",\"dev_cla\":\"duration\",\"stat_cla\":\"total_increasing\",\"ent_cat\":\"diagnostic\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("sensor", "uptime_s", p);
-    case 6:
-        p = "{\"name\":\"Streaming\",\"uniq_id\":\"" + mqttDeviceId + "_streaming\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ 'ON' if value_json.streaming else 'OFF' }}\",\"pl_on\":\"ON\",\"pl_off\":\"OFF\",\"dev_cla\":\"running\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("binary_sensor", "streaming", p);
-    case 7:
-        p = "{\"name\":\"RTSP Server\",\"uniq_id\":\"" + mqttDeviceId + "_rtsp_server\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ 'ON' if value_json.rtsp_server_enabled else 'OFF' }}\",\"pl_on\":\"ON\",\"pl_off\":\"OFF\",\"cmd_t\":\"" + cmdRtsp + "\",\"ic\":\"mdi:radio-tower\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("switch", "rtsp_server", p);
-    case 8:
-        p = "{\"name\":\"RTSP Client\",\"uniq_id\":\"" + mqttDeviceId + "_rtsp_client\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.client }}\",\"ent_cat\":\"diagnostic\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("sensor", "rtsp_client", p);
-    case 9:
-        p = "{\"name\":\"Firmware\",\"uniq_id\":\"" + mqttDeviceId + "_fw_version\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.fw_version }}\",\"ent_cat\":\"diagnostic\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("sensor", "fw_version", p);
-    case 10:
-        p = "{\"name\":\"Build Date\",\"uniq_id\":\"" + mqttDeviceId + "_fw_build\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.fw_build }}\",\"ent_cat\":\"diagnostic\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("sensor", "fw_build", p);
-    case 11:
-        p = "{\"name\":\"Reboot Reason\",\"uniq_id\":\"" + mqttDeviceId + "_reboot_reason\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.reboot_reason }}\",\"ent_cat\":\"diagnostic\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("sensor", "reboot_reason", p);
-    case 12:
-        p = "{\"name\":\"Restart Counter\",\"uniq_id\":\"" + mqttDeviceId + "_restart_counter\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.restart_counter }}\",\"stat_cla\":\"total_increasing\",\"ent_cat\":\"diagnostic\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("sensor", "restart_counter", p);
-    case 13:
-        p = "{\"name\":\"WiFi SSID\",\"uniq_id\":\"" + mqttDeviceId + "_wifi_ssid\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.wifi_ssid }}\",\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:wifi\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("sensor", "wifi_ssid", p);
-    case 14:
-        p = "{\"name\":\"WiFi Reconnects\",\"uniq_id\":\"" + mqttDeviceId + "_wifi_reconnect_count\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.wifi_reconnect_count }}\",\"stat_cla\":\"total_increasing\",\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:wifi-refresh\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("sensor", "wifi_reconnect_count", p);
-    case 15:
-        p = "{\"name\":\"Stream Uptime\",\"uniq_id\":\"" + mqttDeviceId + "_stream_uptime_s\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.stream_uptime_s }}\",\"unit_of_meas\":\"s\",\"dev_cla\":\"duration\",\"stat_cla\":\"measurement\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("sensor", "stream_uptime_s", p);
-    case 16:
-        p = "{\"name\":\"RTSP Client Count\",\"uniq_id\":\"" + mqttDeviceId + "_client_count\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.client_count }}\",\"stat_cla\":\"measurement\",\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:account-multiple\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("sensor", "client_count", p);
-    case 17:
-        p = "{\"name\":\"Stream 1 Enabled\",\"uniq_id\":\"" + mqttDeviceId + "_stream1_enabled\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ 'ON' if value_json.stream1_enabled else 'OFF' }}\",\"pl_on\":\"ON\",\"pl_off\":\"OFF\",\"cmd_t\":\"" + cmdS1Enabled + "\",\"ic\":\"mdi:microphone\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("switch", "stream1_enabled", p);
-    case 18:
-        p = "{\"name\":\"Stream 2 Enabled\",\"uniq_id\":\"" + mqttDeviceId + "_stream2_enabled\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ 'ON' if value_json.stream2_enabled else 'OFF' }}\",\"pl_on\":\"ON\",\"pl_off\":\"OFF\",\"cmd_t\":\"" + cmdS2Enabled + "\",\"ic\":\"mdi:microphone\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("switch", "stream2_enabled", p);
-    case 19:
-        p = "{\"name\":\"Stream 1 Streaming\",\"uniq_id\":\"" + mqttDeviceId + "_stream1_streaming\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ 'ON' if value_json.stream1_streaming else 'OFF' }}\",\"pl_on\":\"ON\",\"pl_off\":\"OFF\",\"dev_cla\":\"running\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("binary_sensor", "stream1_streaming", p);
-    case 20:
-        p = "{\"name\":\"Stream 2 Streaming\",\"uniq_id\":\"" + mqttDeviceId + "_stream2_streaming\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ 'ON' if value_json.stream2_streaming else 'OFF' }}\",\"pl_on\":\"ON\",\"pl_off\":\"OFF\",\"dev_cla\":\"running\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("binary_sensor", "stream2_streaming", p);
-    case 21:
-        p = "{\"name\":\"Stream 1 Clients\",\"uniq_id\":\"" + mqttDeviceId + "_stream1_clients\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.stream1_clients }}\",\"stat_cla\":\"measurement\",\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:account-multiple\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("sensor", "stream1_clients", p);
-    case 22:
-        p = "{\"name\":\"Stream 2 Clients\",\"uniq_id\":\"" + mqttDeviceId + "_stream2_clients\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.stream2_clients }}\",\"stat_cla\":\"measurement\",\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:account-multiple\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("sensor", "stream2_clients", p);
-    case 23:
-        p = "{\"name\":\"Stream 1 Packet Rate\",\"uniq_id\":\"" + mqttDeviceId + "_stream1_packet_rate\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.stream1_packet_rate }}\",\"unit_of_meas\":\"pkt/s\",\"stat_cla\":\"measurement\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("sensor", "stream1_packet_rate", p);
-    case 24:
-        p = "{\"name\":\"Stream 2 Packet Rate\",\"uniq_id\":\"" + mqttDeviceId + "_stream2_packet_rate\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.stream2_packet_rate }}\",\"unit_of_meas\":\"pkt/s\",\"stat_cla\":\"measurement\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("sensor", "stream2_packet_rate", p);
-    case 25:
-        p = "{\"name\":\"Stream 1 URL\",\"uniq_id\":\"" + mqttDeviceId + "_stream1_url\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.stream1_url_ip }}\",\"ic\":\"mdi:link-variant\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("sensor", "stream1_url", p);
-    case 26:
-        p = "{\"name\":\"Stream 2 URL\",\"uniq_id\":\"" + mqttDeviceId + "_stream2_url\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.stream2_url_ip }}\",\"ic\":\"mdi:link-variant\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("sensor", "stream2_url", p);
-    case 27:
-        p = "{\"name\":\"Stream 1 Target\",\"uniq_id\":\"" + mqttDeviceId + "_stream1_target\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.stream1_target }}\",\"cmd_t\":\"" + cmdS1Target + "\",\"options\":[\"BirdNET-Go\",\"BirdNET-Pi\"],\"ic\":\"mdi:target\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("select", "stream1_target", p);
-    case 28:
-        p = "{\"name\":\"Stream 2 Target\",\"uniq_id\":\"" + mqttDeviceId + "_stream2_target\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.stream2_target }}\",\"cmd_t\":\"" + cmdS2Target + "\",\"options\":[\"BirdNET-Go\",\"BirdNET-Pi\"],\"ic\":\"mdi:target\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("select", "stream2_target", p);
-    case 29:
-        p = "{\"name\":\"Sample Rate\",\"uniq_id\":\"" + mqttDeviceId + "_sample_rate_hz\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.sample_rate }}\",\"unit_of_meas\":\"Hz\",\"stat_cla\":\"measurement\",\"ent_cat\":\"diagnostic\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("sensor", "sample_rate_hz", p);
-    case 30:
-        p = "{\"name\":\"Audio Format\",\"uniq_id\":\"" + mqttDeviceId + "_audio_format\",\"stat_t\":\"" + st + "\",\"val_tpl\":\"{{ value_json.audio_format }}\",\"ent_cat\":\"diagnostic\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("sensor", "audio_format", p);
-    case 31:
-        p = "{\"name\":\"Reboot Device\",\"uniq_id\":\"" + mqttDeviceId + "_reboot\",\"cmd_t\":\"" + cmdReboot + "\",\"pl_prs\":\"PRESS\",\"ent_cat\":\"config\",\"avty_t\":\"" + av + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"dev\":" + dev + "}";
-        return mqttPublishDiscoveryConfig("button", "reboot", p);
-    default: return false;
-    }
+    const auto& entity = mqtt_discovery::entities[step - count - 2];
+    String payload = mqtt_discovery::makePayload(entity, mqttDeviceId, mqttStateTopic(),
+        mqttAvailabilityTopic(), mqttBuildDeviceJson(), mqttDiscoveryCommandTopic(entity.command));
+    return mqttPublishDiscoveryConfig(entity.component, entity.objectId, payload);
 }
 
 static void mqttScheduleDiscovery() {
@@ -1142,6 +1109,7 @@ static void mqttMessageCallback(char* topic, byte* payload, unsigned int length)
                 simplePrintln("MQTT command: RTSP server enabled.");
             }
         } else if (up == "OFF") {
+            cancelThermalResume();
             rtspServerEnabled = false;
             stopAllRtspClients("MQTT RTSP server disabled");
             rtspServer.stop();
@@ -1357,39 +1325,19 @@ static uint16_t normalizeHighpassCutoff(uint32_t sampleRate, uint32_t requestedC
 
 // Recompute HPF coefficients (2nd-order Butterworth high-pass)
 void updateHighpassCoeffs() {
-    highpassCutoffHz = normalizeHighpassCutoff(currentSampleRate, highpassCutoffHz);
-    if (!highpassEnabled) {
-        hpf.reset();
-        hpfConfigSampleRate = currentSampleRate;
-        hpfConfigCutoff = highpassCutoffHz;
-        return;
+    // A later HTTP edit must be noticed on the next block, even if it arrives
+    // while coefficients are being computed on the other core.
+    const bool enabled = highpassEnabled;
+    const uint32_t rate = currentSampleRate;
+    const uint16_t cutoff = normalizeHighpassCutoff(rate, highpassCutoffHz);
+    if (enabled) {
+        fxaudio::biquadSetHighpass(&hpf, rate, cutoff);
+    } else {
+        fxaudio::biquadReset(&hpf);
     }
-    float fs = (float)currentSampleRate;
-    float fc = (float)highpassCutoffHz;
-
-    const float pi = 3.14159265358979323846f;
-    float w0 = 2.0f * pi * (fc / fs);
-    float cosw0 = cosf(w0);
-    float sinw0 = sinf(w0);
-    float Q = 0.70710678f; // Butterworth-like
-    float alpha = sinw0 / (2.0f * Q);
-
-    float b0 =  (1.0f + cosw0) * 0.5f;
-    float b1 = -(1.0f + cosw0);
-    float b2 =  (1.0f + cosw0) * 0.5f;
-    float a0 =  1.0f + alpha;
-    float a1 = -2.0f * cosw0;
-    float a2 =  1.0f - alpha;
-
-    hpf.b0 = b0 / a0;
-    hpf.b1 = b1 / a0;
-    hpf.b2 = b2 / a0;
-    hpf.a1 = a1 / a0;
-    hpf.a2 = a2 / a0;
-    hpf.reset();
-
-    hpfConfigSampleRate = currentSampleRate;
-    hpfConfigCutoff = highpassCutoffHz;
+    hpfConfigEnabled = enabled;
+    hpfConfigSampleRate = rate;
+    hpfConfigCutoff = cutoff;
 }
 
 // Uptime -> "Xd Yh Zm Ts"
@@ -1831,7 +1779,36 @@ static void persistOverheatNote() {
     audioPrefs.putString("ohStamp", overheatLastTimestamp);
     audioPrefs.putFloat("ohTripC", overheatTripTemp);
     audioPrefs.putBool("ohLatched", overheatLatched);
+    thermalRecovery.state.latched = overheatLatched;
+    audioPrefs.putBytes("ohRecovery", &thermalRecovery.state, sizeof(thermalRecovery.state));
     audioPrefs.end();
+}
+
+static uint32_t thermalEpochNow() {
+    return hasValidTime() ? (uint32_t)time(nullptr) : 0;
+}
+
+void cancelThermalResume() {
+    if (!thermalRecovery.state.resumePending) return;
+    thermalRecovery.state.resumePending = 0;
+    persistOverheatNote();
+}
+
+bool acknowledgeThermalShutdown() {
+    bool wasLatched = overheatLatched;
+    if (!thermalRecovery.acknowledge(millis())) return false;
+    overheatLatched = false;
+    overheatLockoutActive = false;
+    overheatConsecutiveSamples = 0;
+    // Preserve the last shutdown details for diagnosis after acknowledgement.
+    persistOverheatNote();
+    if (wasLatched && isStreamScheduleAllowedNow()) {
+        rtspServer.begin();
+        rtspServer.setNoDelay(true);
+        rtspServerEnabled = true;
+    }
+    mqttPublishState(true);
+    return true;
 }
 
 void recordOverheatTrip(float temp) {
@@ -1840,10 +1817,15 @@ void recordOverheatTrip(float temp) {
     overheatTriggeredAt = millis();
     overheatLastTimestamp = formatUptime(uptimeSeconds);
     overheatLastReason = String("Thermal shutdown: ") + String(temp, 1) + " C reached (limit " +
-                         String(overheatShutdownC, 1) + " C). Stream disabled; acknowledge in UI.";
+                         String(overheatShutdownC, 1) + " C).";
+    thermalRecovery.trip(thermalEpochNow(), esp_timer_get_time() / 1000000ULL,
+                         overheatShutdownC, temp >= overheatShutdownC + OVERHEAT_EMERGENCY_MARGIN_C,
+                         rtspServerEnabled);
     overheatLatched = true;
     simplePrintln("THERMAL PROTECTION: " + overheatLastReason);
-    simplePrintln("TIP: Improve cooling or lower WiFi TX power/CPU MHz if overheating persists.");
+    simplePrintln(thermalRecovery.autoPending(overheatAutoResumeEnabled, overheatProtectionEnabled)
+                  ? "Waiting for five minutes at least 15 C below the limit before automatic recovery."
+                  : "Manual acknowledgement required after cooling.");
     persistOverheatNote();
 }
 
@@ -1851,29 +1833,24 @@ void recordOverheatTrip(float temp) {
 void checkTemperature() {
     float temp = temperatureRead(); // ESP32 internal sensor (approximate)
     bool tempValid = isTemperatureValid(temp);
+    if (thermalRecovery.updateHistory(thermalEpochNow(), esp_timer_get_time() / 1000000ULL)) {
+        persistOverheatNote();
+    }
+    thermalRecovery.sample(millis(), tempValid, temp);
     if (!tempValid) {
         overheatConsecutiveSamples = 0;
         lastTemperatureValid = false;
         if (!overheatSensorFault) {
             overheatSensorFault = true;
-            overheatLastReason = "Thermal protection disabled: temperature sensor unavailable.";
-            overheatLastTimestamp = "";
-            overheatTripTemp = 0.0f;
-            overheatTriggeredAt = 0;
-            persistOverheatNote();
-            simplePrintln("WARNING: Temperature sensor unavailable. Thermal protection paused.");
+            simplePrintln("WARNING: Temperature sensor unavailable. Thermal recovery blocked.");
         }
         return;
     }
 
     lastTemperatureC = temp;
     lastTemperatureValid = true;
-
     if (overheatSensorFault) {
         overheatSensorFault = false;
-        overheatLastReason = "Thermal protection restored: temperature sensor reading valid.";
-        overheatLastTimestamp = formatUptime((millis() - bootTime) / 1000);
-        persistOverheatNote();
         simplePrintln("Temperature sensor restored. Thermal protection active again.");
     }
 
@@ -1881,9 +1858,17 @@ void checkTemperature() {
         maxTemperature = temp;
     }
 
+    if (overheatLatched && !thermalRecovery.state.emergency &&
+        temp >= overheatShutdownC + OVERHEAT_EMERGENCY_MARGIN_C) {
+        // Further heating during a shutdown escalates the existing event,
+        // rather than granting an automatic restart after a severe excursion.
+        thermalRecovery.state.emergency = thermalRecovery.state.manualBlocked = 1;
+        persistOverheatNote();
+        simplePrintln("THERMAL PROTECTION: emergency temperature while paused; manual acknowledgement required.");
+    }
     bool protectionActive = overheatProtectionEnabled && !overheatSensorFault;
     if (protectionActive) {
-        if (!overheatLockoutActive) {
+        if (!overheatLatched && rtspServerEnabled) {
             bool confirmedTrip = false;
             if (temp >= (overheatShutdownC + OVERHEAT_EMERGENCY_MARGIN_C)) {
                 // A clearly dangerous excursion still shuts down immediately.
@@ -1901,20 +1886,27 @@ void checkTemperature() {
             if (confirmedTrip) {
                 overheatLockoutActive = true;
                 recordOverheatTrip(temp);
-                // Disable streaming until user restarts manually
+                // A persistent latch gates manual and automatic recovery.
                 stopAllRtspClients("Thermal protection");
                 rtspServerEnabled = false;
                 rtspServer.stop();
                 mqttPublishState(true);
             }
-        } else if (overheatLockoutActive && temp <= (overheatShutdownC - OVERHEAT_LIMIT_STEP_C)) {
-            // Allow re-arming after we cool down by at least one step
-            overheatLockoutActive = false;
-            overheatConsecutiveSamples = 0;
         }
     } else {
-        overheatLockoutActive = false;
         overheatConsecutiveSamples = 0;
+    }
+    if (thermalRecovery.canResume(millis(), overheatAutoResumeEnabled,
+                                  overheatProtectionEnabled, isStreamScheduleAllowedNow())) {
+        thermalRecovery.resume();
+        overheatLatched = overheatLockoutActive = false;
+        overheatConsecutiveSamples = 0;
+        persistOverheatNote();
+        rtspServer.begin();
+        rtspServer.setNoDelay(true);
+        rtspServerEnabled = true;
+        simplePrintln("THERMAL RECOVERY: RTSP restored after stable cooling. Warning awaits acknowledgement.");
+        mqttPublishState(true);
     }
 
     // Only warn occasionally on high temperature; no periodic logging
@@ -2042,6 +2034,7 @@ void loadAudioSettings() {
     highpassEnabled = audioPrefs.getBool("hpEnable", DEFAULT_HPF_ENABLED);
     highpassCutoffHz = (uint16_t)audioPrefs.getUInt("hpCutoff", DEFAULT_HPF_CUTOFF_HZ);
     overheatProtectionEnabled = audioPrefs.getBool("ohEnable", DEFAULT_OVERHEAT_PROTECTION);
+    overheatAutoResumeEnabled = audioPrefs.getBool("ohAuto", false);
     timeOffsetMinutes = audioPrefs.getInt("timeOffset", 0);
     timeZoneMode = audioPrefs.getUChar("timeZone", TIME_ZONE_FIXED);
     customTimeZoneRule = audioPrefs.getString("timeZoneRule", "UTC0");
@@ -2086,6 +2079,14 @@ void loadAudioSettings() {
     overheatLastTimestamp = audioPrefs.getString("ohStamp", "");
     overheatTripTemp = audioPrefs.getFloat("ohTripC", 0.0f);
     overheatLatched = audioPrefs.getBool("ohLatched", false);
+    ThermalRecoveryState storedThermal;
+    storedThermal.magic = 0;
+    if (audioPrefs.getBytesLength("ohRecovery") == sizeof(storedThermal)) {
+        audioPrefs.getBytes("ohRecovery", &storedThermal, sizeof(storedThermal));
+    }
+    thermalRecovery.restore(storedThermal, overheatLatched, esp_timer_get_time() / 1000000ULL, overheatShutdownC);
+    overheatLatched = thermalRecovery.state.latched;
+    overheatLockoutActive = overheatLatched;
     audioPrefs.end();
 
     if (currentSampleRate < 8000U || currentSampleRate > 192000U) {
@@ -2104,8 +2105,12 @@ void loadAudioSettings() {
         i2sShiftBits = 12;
         settingsRepaired = true;
     }
-    if (micFormat > MIC_FORMAT_MSB) {
+    if (micFormat > MIC_FORMAT_PDM || (micFormat == MIC_FORMAT_PDM && !pdmMicSupported())) {
         micFormat = DEFAULT_MIC_FORMAT;
+        settingsRepaired = true;
+    }
+    if (micFormat == MIC_FORMAT_PDM && currentSampleRate != PDM_SAMPLE_RATE) {
+        currentSampleRate = PDM_SAMPLE_RATE;
         settingsRepaired = true;
     }
     if (resetIntervalHours < 1U || resetIntervalHours > 168U) {
@@ -2198,6 +2203,7 @@ void saveAudioSettings() {
     audioPrefs.putBool("hpEnable", highpassEnabled);
     audioPrefs.putUInt("hpCutoff", (uint32_t)highpassCutoffHz);
     audioPrefs.putBool("ohEnable", overheatProtectionEnabled);
+    audioPrefs.putBool("ohAuto", overheatAutoResumeEnabled);
     uint32_t ohLimit = (uint32_t)(overheatShutdownC + 0.5f);
     if (ohLimit < OVERHEAT_MIN_LIMIT_C) ohLimit = OVERHEAT_MIN_LIMIT_C;
     if (ohLimit > OVERHEAT_MAX_LIMIT_C) ohLimit = OVERHEAT_MAX_LIMIT_C;
@@ -2206,6 +2212,8 @@ void saveAudioSettings() {
     audioPrefs.putString("ohStamp", overheatLastTimestamp);
     audioPrefs.putFloat("ohTripC", overheatTripTemp);
     audioPrefs.putBool("ohLatched", overheatLatched);
+    thermalRecovery.state.latched = overheatLatched;
+    audioPrefs.putBytes("ohRecovery", &thermalRecovery.state, sizeof(thermalRecovery.state));
     audioPrefs.putInt("timeOffset", timeOffsetMinutes);
     audioPrefs.putUChar("timeZone", timeZoneMode);
     audioPrefs.putString("timeZoneRule", customTimeZoneRule);
@@ -2313,6 +2321,8 @@ void resetToDefaultSettings() {
     highpassEnabled = DEFAULT_HPF_ENABLED;
     highpassCutoffHz = DEFAULT_HPF_CUTOFF_HZ;
     overheatProtectionEnabled = DEFAULT_OVERHEAT_PROTECTION;
+    overheatAutoResumeEnabled = false;
+    thermalRecovery = ThermalRecovery{};
     overheatShutdownC = (float)DEFAULT_OVERHEAT_LIMIT_C;
     overheatLockoutActive = false;
     overheatConsecutiveSamples = 0;
@@ -2370,6 +2380,7 @@ void resetToDefaultSettings() {
 // This prevents a larger requested buffer size from being used with the old,
 // smaller allocation during a Web UI reconfiguration.
 bool applyAudioConfig(uint32_t newRate, float newGain, uint16_t newBuffer, uint8_t newShift) {
+    if (micFormat == MIC_FORMAT_PDM && newRate != PDM_SAMPLE_RATE) return false;
     uint32_t oldRate = currentSampleRate;
     float oldGain = currentGainFactor;
     uint16_t oldBuffer = currentBufferSize;
@@ -2400,21 +2411,27 @@ bool applyAudioConfig(uint32_t newRate, float newGain, uint16_t newBuffer, uint8
     return false;
 }
 
-// Change only the receiver's sample alignment. This does not change GPIO
-// direction, voltage, BCLK frequency, WS frequency, or microphone power.
+// Stop the producer BEFORE changing format/rate: it must not decode old DMA
+// bytes with the new sample width. Roll back the complete dependent state.
 bool applyMicFormatConfig(uint8_t newFormat) {
-    if (newFormat > MIC_FORMAT_MSB) return false;
+    if (newFormat > MIC_FORMAT_PDM || (newFormat == MIC_FORMAT_PDM && !pdmMicSupported())) return false;
     if (newFormat == micFormat) return true;
-
     uint8_t oldFormat = micFormat;
+    uint32_t oldRate = currentSampleRate;
+    uint16_t oldCutoff = highpassCutoffHz;
+    uint32_t oldMinRate = minAcceptableRate;
+    stopAudioProducer();
     micFormat = newFormat;
+    if (newFormat == MIC_FORMAT_PDM) currentSampleRate = PDM_SAMPLE_RATE;
+    highpassCutoffHz = normalizeHighpassCutoff(currentSampleRate, highpassCutoffHz);
+    if (autoThresholdEnabled) minAcceptableRate = computeRecommendedMinRate();
     if (restartI2S()) return true;
-
-    simplePrintln("Mic format setting rejected: I2S restart failed, rolling back.");
+    simplePrintln("Mic format rejected; restoring previous audio configuration.");
     micFormat = oldFormat;
-    if (!restartI2S()) {
-        simplePrintln("Mic format rollback failed; reboot recommended.");
-    }
+    currentSampleRate = oldRate;
+    highpassCutoffHz = oldCutoff;
+    minAcceptableRate = oldMinRate;
+    if (!restartI2S()) simplePrintln("Mic format rollback failed; reboot recommended.");
     return false;
 }
 
@@ -2452,8 +2469,6 @@ bool restartI2S() {
         simplePrintln("FATAL: I2S restart failed!");
         return false;
     }
-    // Refresh HPF with current parameters
-    updateHighpassCoeffs();
     maxPacketRate = 0;
     minPacketRate = 0xFFFFFFFF;
     simplePrintln("I2S restarted successfully");
@@ -2478,6 +2493,7 @@ void setupOTA() {
 #ifdef OTA_PASSWORD
     ArduinoOTA.setPassword(OTA_PASSWORD);
 #endif
+    ArduinoOTA.onStart([] { browserAudioStop(); });
     ArduinoOTA.begin();
 }
 
@@ -2516,47 +2532,180 @@ void flushAudioRingBuffer() {
     }
 }
 
+// Keep the overflow ISR bounded: no allocation, logging, clock calls or DSP.
+static bool IRAM_ATTR onI2sDmaOverrun(i2s_chan_handle_t, i2s_event_data_t*, void*) {
+    portENTER_CRITICAL_ISR(&audioDmaMux);
+    if (audioDmaCountingEnabled) ++audioDmaOverrunTotal;
+    portEXIT_CRITICAL_ISR(&audioDmaMux);
+    return false;
+}
+
+static void setI2sDmaCounting(bool enabled) {
+    portENTER_CRITICAL(&audioDmaMux);
+    audioDmaCountingEnabled = enabled && !audioProducerStopRequested;
+    portEXIT_CRITICAL(&audioDmaMux);
+}
+
+static uint32_t getI2sDmaOverrunTotal() {
+    portENTER_CRITICAL(&audioDmaMux);
+    uint32_t total = audioDmaOverrunTotal;
+    portEXIT_CRITICAL(&audioDmaMux);
+    return total;
+}
+
+static void registerI2sDiagnostics() {
+    i2s_event_callbacks_t callbacks = {};
+    callbacks.on_recv_q_ovf = onI2sDmaOverrun;
+    esp_err_t result = i2s_channel_register_event_callback(i2s_rx_handle, &callbacks, nullptr);
+    audioDmaCallbackAvailable = (result == ESP_OK);
+    if (!audioDmaCallbackAvailable) {
+        simplePrintln("I2S DMA diagnostics unavailable: " + String(esp_err_to_name(result)));
+    }
+}
+
+static esp_err_t enableI2sReceiverWithDiagnostics() {
+    registerI2sDiagnostics();
+    esp_err_t result = i2s_channel_enable(i2s_rx_handle);
+    if (result != ESP_OK) audioDmaCallbackAvailable = false;
+    return result;
+}
+
+DmaOverrunStatus getI2sDmaStatus() {
+    return {audioDmaCallbackAvailable, getI2sDmaOverrunTotal(), audioDmaWindow.count(),
+            audioDmaWindow.hasEvent(), audioDmaWindow.lastEventMs()};
+}
+
+void checkMicrophoneSignal() {
+    uint32_t now = millis();
+    static MicrophoneSignal::State previousSignal = MicrophoneSignal::Unavailable;
+    auto signal = microphoneSignal.state(now, audioProducerRunning && !audioProducerStopRequested);
+    if (signal != previousSignal) {
+        if (signal == MicrophoneSignal::Flatline)
+            simplePrintln("Microphone signal unchanged for 20 s; check microphone wiring/power.");
+        else if (signal == MicrophoneSignal::Healthy && previousSignal == MicrophoneSignal::Flatline)
+            simplePrintln("Microphone signal restored.");
+        previousSignal = signal;
+        mqttPublishState(true);
+    }
+}
+
+void updateAudioDiagnostics() {
+#if MIC_PDM_SOFTWARE
+    uint8_t stride = pdmStrideLogPending.exchange(0, std::memory_order_relaxed);
+    if (stride) simplePrintln(stride == 2 ? "PDM raw rate: paired slots; using every second word."
+                                        : "PDM raw rate: plain stream; using every word.");
+#endif
+    uint32_t now = millis();
+    uint32_t added = audioDmaWindow.update(now, getI2sDmaOverrunTotal());
+    static bool logged = false;
+    static uint32_t lastLogMs = 0;
+    if (added && (!logged || uint32_t(now - lastLogMs) >= 60000)) {
+        logged = true;
+        lastLogMs = now;
+        simplePrintln("I2S DMA overrun: " + String(audioDmaWindow.count()) +
+                      " observed in the last 60 s; capture could not keep up.");
+    }
+}
+
+#if MIC_PDM_SOFTWARE
+static int readPdmSoftwareBlock(uint64_t& filterUs) {
+    int produced = 0;
+    while (produced < (int)currentBufferSize && !audioProducerStopRequested) {
+        size_t bytesRead = 0;
+        size_t want = size_t(currentBufferSize - produced) * 8 * (pdmFramer.stride == 1 ? 1 : 2);
+        if (want > sizeof(pdmReadBuffers->bytes)) want = sizeof(pdmReadBuffers->bytes);
+        esp_err_t err = i2s_channel_read(i2s_rx_handle, pdmReadBuffers->bytes, want, &bytesRead, 100);
+        if (audioProducerStopRequested) break;
+        if (err != ESP_OK && err != ESP_ERR_TIMEOUT) { audioI2SErrorCount++; break; }
+        if (!bytesRead) { audioI2SErrorCount++; break; }
+        audioProducerLastReadMs = millis();
+        uint64_t started = esp_timer_get_time();
+        size_t words = pdmFramer.unpack(pdmReadBuffers->bytes, bytesRead, pdmReadBuffers->words);
+        uint8_t detected = pdmWordRate.observe(words, started,
+            PDM_SAMPLE_RATE * pdmsw::kWordsPerSample, getI2sDmaOverrunTotal());
+        if (detected) {
+            if (pdmDetectedStride.exchange(detected, std::memory_order_relaxed) == 0)
+                pdmStrideLogPending.store(detected, std::memory_order_relaxed);
+            if (detected != pdmFramer.stride) {
+                pdmFramer.stride = detected;
+                pdmFramer.secondOfPair = false;
+                pdmReadChunks = 0;
+                pdmDetectedOrder.store(0, std::memory_order_relaxed);
+                pdmsw::init(pdmDecimator, false);
+                produced = 0; // discard samples decoded with the provisional stride
+            }
+        }
+        size_t compacted = pdmFramer.compact(pdmReadBuffers->words, words);
+        ++pdmReadChunks;
+        if (detected && pdmDetectedOrder.load(std::memory_order_relaxed) == 0 &&
+            pdmReadChunks >= 4 && (pdmReadChunks - 4) % 32 == 0 && compacted >= 256) {
+            auto order = pdmsw::detectBitOrder(pdmDecimator, pdmReadBuffers->words, compacted);
+            pdmDetectedOrder.store(uint8_t(order), std::memory_order_relaxed);
+        }
+        produced += int(pdmsw::process(pdmDecimator, pdmReadBuffers->words, compacted,
+                                       i2s_32bit_buffer + produced, currentBufferSize - produced));
+        filterUs += esp_timer_get_time() - started;
+        if (err == ESP_ERR_TIMEOUT) break;
+    }
+    return produced;
+}
+#endif
+
 void audioProducerTask(void* /*arg*/) {
     audioProducerRunning = true;
+    setI2sDmaCounting(true);
+    AudioProcessingWindow processingLoad;
+    processingLoad.reset(esp_timer_get_time());
 
+    const bool pdm = micFormat == MIC_FORMAT_PDM;
+    const size_t sampleBytes = pdm && MIC_PDM_HARDWARE ? sizeof(int16_t) : sizeof(int32_t);
     while (!audioProducerStopRequested) {
-        size_t bytesRead = 0;
-        esp_err_t result = i2s_channel_read(i2s_rx_handle, i2s_32bit_buffer,
-                                            currentBufferSize * sizeof(int32_t),
-                                            &bytesRead, 100);
+        uint64_t filterUs = 0;
+        int samplesRead = 0;
+#if MIC_PDM_SOFTWARE
+        if (pdm) samplesRead = readPdmSoftwareBlock(filterUs);
+        else
+#endif
+        {
+            size_t bytesRead = 0;
+            esp_err_t result = i2s_channel_read(i2s_rx_handle, i2s_32bit_buffer,
+                                                currentBufferSize * sampleBytes, &bytesRead, 100);
+            if (audioProducerStopRequested) break;
+            if (result != ESP_OK && result != ESP_ERR_TIMEOUT) { audioI2SErrorCount++; continue; }
+            samplesRead = bytesRead / sampleBytes;
+            if (samplesRead == 0) { audioI2SErrorCount++; vTaskDelay(pdMS_TO_TICKS(1)); continue; }
+            audioProducerLastReadMs = millis();
+        }
         if (audioProducerStopRequested) break;
+        if (samplesRead <= 0) { vTaskDelay(pdMS_TO_TICKS(1)); continue; }
+        uint64_t processingStartedUs = esp_timer_get_time();
 
-        if (result != ESP_OK || bytesRead == 0) {
-            audioI2SErrorCount++;
-            vTaskDelay(pdMS_TO_TICKS(1));
-            continue;
+        // Hardware PDM is packed int16. Widen backwards without overwriting
+        // unread samples; both PDM paths then share the same fixed PCM scale.
+        if (pdm && MIC_PDM_HARDWARE) {
+            const uint8_t* packed = (const uint8_t*)i2s_32bit_buffer;
+            for (int i = samplesRead - 1; i >= 0; --i) {
+                int16_t value;
+                memcpy(&value, packed + size_t(i) * sizeof(value), sizeof(value));
+                i2s_32bit_buffer[i] = int32_t(value) * 65536;
+            }
         }
+        if (hpfConfigEnabled != highpassEnabled || hpfConfigSampleRate != currentSampleRate ||
+            hpfConfigCutoff != highpassCutoffHz) updateHighpassCoeffs();
 
-        int samplesRead = bytesRead / sizeof(int32_t);
-        if (samplesRead <= 0) continue;
-        audioProducerLastReadMs = millis();
-
-        // If HPF params changed dynamically, recompute in the producer context.
-        if (highpassEnabled && (hpfConfigSampleRate != currentSampleRate || hpfConfigCutoff != highpassCutoffHz)) {
-            updateHighpassCoeffs();
+        int32_t rawMinimum = INT32_MAX, rawMaximum = INT32_MIN;
+        for (int i = 0; i < samplesRead; ++i) {
+            int32_t raw = i2s_32bit_buffer[i];
+            if (raw < rawMinimum) rawMinimum = raw;
+            if (raw > rawMaximum) rawMaximum = raw;
         }
-
         bool clipped = false;
-        float peakAbs = 0.0f;
-        for (int i = 0; i < samplesRead; i++) {
-            float sample = (float)(i2s_32bit_buffer[i] >> i2sShiftBits);
-            if (highpassEnabled) sample = hpf.process(sample);
-            float amplified = sample * currentGainFactor;
-            float aabs = fabsf(amplified);
-            if (aabs > peakAbs) peakAbs = aabs;
-            if (aabs > 32767.0f) clipped = true;
-            if (amplified > 32767.0f) amplified = 32767.0f;
-            if (amplified < -32768.0f) amplified = -32768.0f;
-            i2s_16bit_buffer[i] = (int16_t)amplified;
-        }
-
-        if (peakAbs > 32767.0f) peakAbs = 32767.0f;
-        lastPeakAbs16 = (uint16_t)peakAbs;
+        // PDM retains its defined int16 PCM scale; I2S Shift stays I2S-only.
+        lastPeakAbs16 = fxaudio::processBlock(i2s_32bit_buffer, i2s_16bit_buffer, samplesRead,
+            pdm ? 16 : i2sShiftBits, hpfConfigEnabled ? &hpf : nullptr,
+            fxaudio::gainToQ(currentGainFactor), &clipped);
+        microphoneSignal.observe(rawMinimum, rawMaximum, millis());
+        browserAudioPush(i2s_16bit_buffer, samplesRead);
         audioClippedLastBlock = clipped;
         if (clipped) audioClipCount++;
 
@@ -2567,25 +2716,34 @@ void audioProducerTask(void* /*arg*/) {
             peakHoldAbs16 = 0;
         }
 
-        if (!audioRingBuffer || !hasActiveRtspStream()) {
-            continue;
+        if (audioRingBuffer && hasActiveRtspStream()) {
+            size_t payloadBytes = (size_t)samplesRead * sizeof(int16_t);
+            if (xRingbufferSend(audioRingBuffer, i2s_16bit_buffer, payloadBytes, 0) == pdTRUE) {
+                audioRingBufferChunkCount++;
+            } else {
+                // Capture remains the only writer; keep the existing atomic counter.
+                audioRingBufferDropCount.store(
+                    audioRingBufferDropCount.load(std::memory_order_relaxed) + 1,
+                    std::memory_order_relaxed);
+            }
         }
-
-        size_t payloadBytes = (size_t)samplesRead * sizeof(int16_t);
-        if (xRingbufferSend(audioRingBuffer, i2s_16bit_buffer, payloadBytes, 0) == pdTRUE) {
-            audioRingBufferChunkCount++;
-        } else {
-            audioRingBufferDropCount++;
+        uint64_t processingFinishedUs = esp_timer_get_time();
+        if (processingLoad.add(processingFinishedUs, processingFinishedUs - processingStartedUs + filterUs)) {
+            audioProcessingLoadSnapshot.store(processingLoad.snapshot(), std::memory_order_relaxed);
         }
     }
 
+    setI2sDmaCounting(false);
+    audioProcessingLoadSnapshot.store(0, std::memory_order_relaxed);
     audioProducerRunning = false;
     audioProducerTaskHandle = nullptr;
     vTaskDelete(nullptr);
 }
 
 void stopAudioProducer() {
+    browserAudioStop();
     audioProducerStopRequested = true;
+    setI2sDmaCounting(false);
     unsigned long startMs = millis();
     while (audioProducerTaskHandle != nullptr && (millis() - startMs) < 600UL) {
         delay(5);
@@ -2601,13 +2759,23 @@ void stopAudioProducer() {
     }
     audioRingBufferCapacityBytes = 0;
     audioRingBufferFlushPending = false;
+    audioProcessingLoadSnapshot.store(0, std::memory_order_relaxed);
+    microphoneSignal.reset();
     audioProducerStopRequested = false;
 }
 
 bool startAudioProducer() {
     stopAudioProducer();
 
-    audioRingBufferCapacityBytes = computeAudioRingBufferCapacity();
+    const size_t requested = computeAudioRingBufferCapacity();
+    const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    audioRingBufferCapacityBytes = audioreserve::fit(requested,
+        size_t(currentBufferSize) * sizeof(int16_t), heap_caps_get_free_size(caps),
+        heap_caps_get_largest_free_block(caps));
+    if (!audioRingBufferCapacityBytes) {
+        simplePrintln("Audio reserve: insufficient RAM for Wi-Fi and capture.");
+        return false;
+    }
     audioRingBuffer = xRingbufferCreate(audioRingBufferCapacityBytes, RINGBUF_TYPE_BYTEBUF);
     if (!audioRingBuffer) {
         simplePrintln("Audio RB alloc failed");
@@ -2615,12 +2783,15 @@ bool startAudioProducer() {
         return false;
     }
 
+    simplePrintln("Audio reserve: " + String((uint32_t)audioRingBufferCapacityBytes) +
+                  " bytes; requested " + String((uint32_t)requested));
+    updateHighpassCoeffs(); // producer is stopped here
     audioProducerStopRequested = false;
     audioProducerLastReadMs = millis();
     BaseType_t rc = xTaskCreate(
         audioProducerTask,
         "audio_prod",
-        6144,
+        audioreserve::kProducerStackBytes,
         nullptr,
         5,
         &audioProducerTaskHandle
@@ -2640,21 +2811,65 @@ bool startAudioProducer() {
 // I2S setup
 bool setup_i2s_driver() {
     stopAudioProducer();
+    audioDmaCallbackAvailable = false;
     if (i2s_rx_handle) {
         i2s_channel_disable(i2s_rx_handle);
         i2s_del_channel(i2s_rx_handle);
         i2s_rx_handle = nullptr;
     }
 
+    releasePdmCapture();
+    if (micFormat == MIC_FORMAT_PDM && (!pdmMicSupported() || currentSampleRate != PDM_SAMPLE_RATE)) return false;
     uint16_t dma_buf_len = (currentBufferSize > 512) ? 512 : currentBufferSize;
 
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
     chan_cfg.dma_desc_num = 8;
     chan_cfg.dma_frame_num = dma_buf_len;
+#if MIC_PDM_SOFTWARE
+    if (micFormat == MIC_FORMAT_PDM) chan_cfg.dma_frame_num = 1024;
+#endif
 
     esp_err_t err = i2s_new_channel(&chan_cfg, nullptr, &i2s_rx_handle);
     if (err != ESP_OK) {
         simplePrintln("I2S channel create failed: " + String(esp_err_to_name(err)));
+        return false;
+    }
+
+    if (micFormat == MIC_FORMAT_PDM) {
+#if SOC_I2S_SUPPORTS_PDM_RX
+        i2s_pdm_rx_config_t config = {};
+#if SOC_I2S_SUPPORTS_PDM2PCM
+        config.clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(PDM_SAMPLE_RATE);
+        config.clk_cfg.dn_sample_mode = I2S_PDM_DSR_8S;
+        config.slot_cfg = I2S_PDM_RX_SLOT_PCM_FMT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO);
+#else
+        pdmDecimator = (pdmsw::Decimator*)malloc(sizeof(pdmsw::Decimator));
+        pdmReadBuffers = (PdmReadBuffers*)malloc(sizeof(PdmReadBuffers));
+        if (!pdmDecimator || !pdmReadBuffers) {
+            releasePdmCapture();
+            i2s_del_channel(i2s_rx_handle); i2s_rx_handle = nullptr;
+            return false;
+        }
+        pdmsw::init(pdmDecimator, false);
+        config.clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(PDM_CLOCK_HZ);
+        config.slot_cfg = I2S_PDM_RX_SLOT_RAW_FMT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO);
+#endif
+        config.slot_cfg.slot_mask = I2S_PDM_SLOT_LEFT;
+        config.gpio_cfg.clk = (gpio_num_t)I2S_BCLK_PIN;
+        config.gpio_cfg.din = (gpio_num_t)I2S_DOUT_PIN;
+        err = i2s_channel_init_pdm_rx_mode(i2s_rx_handle, &config);
+        if (err == ESP_OK) err = enableI2sReceiverWithDiagnostics();
+        if (err == ESP_OK && startAudioProducer()) {
+            simplePrintln(String("PDM ready: 48000 Hz, ") + pdmDecoderName() +
+                          ", CLK=D3, DATA=D2, SEL=GND; WS/MCLK unused.");
+            return true;
+        }
+        audioDmaCallbackAvailable = false;
+        i2s_channel_disable(i2s_rx_handle);
+        i2s_del_channel(i2s_rx_handle); i2s_rx_handle = nullptr;
+        releasePdmCapture();
+#endif
+        simplePrintln("PDM setup failed; check configuration/memory.");
         return false;
     }
 
@@ -2692,8 +2907,9 @@ bool setup_i2s_driver() {
         return false;
     }
 
-    err = i2s_channel_enable(i2s_rx_handle);
+    err = enableI2sReceiverWithDiagnostics();
     if (err != ESP_OK) {
+        audioDmaCallbackAvailable = false;
         simplePrintln("I2S channel enable failed: " + String(esp_err_to_name(err)));
         i2s_del_channel(i2s_rx_handle);
         i2s_rx_handle = nullptr;
@@ -2708,6 +2924,7 @@ bool setup_i2s_driver() {
                   String(I2S_MCLK_PIN) + "/" + String(I2S_BCLK_PIN) + "/" +
                   String(I2S_LRCLK_PIN) + "/" + String(I2S_DOUT_PIN));
     if (!startAudioProducer()) {
+        audioDmaCallbackAvailable = false;
         i2s_channel_disable(i2s_rx_handle);
         i2s_del_channel(i2s_rx_handle);
         i2s_rx_handle = nullptr;
@@ -2779,7 +2996,8 @@ static void servicePendingTcp(ClientSession &session) {
     if (result != CooperativeTcpWriter::COMPLETE) return;
     if (shouldFlushRecoveredBacklog(session.tcpWriter.stalled(), session.streaming,
                                     anotherSessionStreaming(session),
-                                    session.tcpFrameDropsAtQueue, audioRingBufferDropCount)) {
+                                    session.tcpFrameDropsAtQueue,
+                                    audioRingBufferDropCount.load(std::memory_order_relaxed))) {
         audioRingBufferFlushPending = true;
     }
     if (session.tcpFrameIsRtp) recordRtpSent(session, session.tcpFrameSamples, session.tcpFrameChunk);
@@ -2789,7 +3007,7 @@ static void servicePendingTcp(ClientSession &session) {
 
 static void queueRtspResponse(ClientSession &session, const String &response) {
     session.tcpFrameIsRtp = false;
-    session.tcpFrameDropsAtQueue = audioRingBufferDropCount;
+    session.tcpFrameDropsAtQueue = audioRingBufferDropCount.load(std::memory_order_relaxed);
     if (!session.tcpWriter.queue((const uint8_t*)response.c_str(), response.length(), millis())) {
         stopStreamOnWriteFailure(session, "RTSP write failed");
         return;
@@ -2840,7 +3058,7 @@ void sendRTPPacket(ClientSession &session, const int16_t* networkAudioData, int 
         session.tcpFrameIsRtp = true;
         session.tcpFrameSamples = (uint16_t)numSamples;
         session.tcpFrameChunk = chunk;
-        session.tcpFrameDropsAtQueue = audioRingBufferDropCount;
+        session.tcpFrameDropsAtQueue = audioRingBufferDropCount.load(std::memory_order_relaxed);
         servicePendingTcp(session);
         return;
     } else {
@@ -3273,6 +3491,7 @@ void stopRtspClientsForStream(uint8_t profileIndex, const char* reason) {
 }
 
 void stopAllRtspClients(const char* reason) {
+    browserAudioStop();
     bool hadStreaming = false;
     for (uint8_t i = 0; i < MAX_CLIENTS; i++) {
         if (clients[i].streaming) hadStreaming = true;
@@ -3391,12 +3610,11 @@ void setup() {
     logDeepSleepWakeSnapshotIfAny();
 
     setupOTA();
+    audioDmaWindow.reset(millis(), getI2sDmaOverrunTotal());
     if (!setup_i2s_driver()) {
         simplePrintln("FATAL: I2S setup failed!");
         ESP.restart();
     }
-    updateHighpassCoeffs();
-
     if (!overheatLatched) {
         rtspServer.begin();
         rtspServer.setNoDelay(true);
@@ -3414,6 +3632,7 @@ void setup() {
     }
     // Web UI
     webui_begin();
+    browserAudioBegin();
     mqttRequestReconnect(true);
 
     lastStatsReset = millis();
@@ -3433,11 +3652,6 @@ void setup() {
         lastTemperatureC = 0.0f;
         lastTemperatureValid = false;
         overheatSensorFault = true;
-        overheatLastReason = "Thermal protection disabled: temperature sensor unavailable.";
-        overheatLastTimestamp = "";
-        overheatTripTemp = 0.0f;
-        overheatTriggeredAt = 0;
-        persistOverheatNote();
         simplePrintln("WARNING: Temperature sensor unavailable at startup. Thermal protection paused.");
     }
 
@@ -3454,7 +3668,7 @@ void setup() {
         }
         simplePrintln("You can stream via IP or mDNS (if enabled).");
     } else if (overheatLatched) {
-        simplePrintln("RTSP server paused due to thermal latch. Clear via Web UI before resuming streaming.");
+        simplePrintln("RTSP server paused due to thermal latch. Waiting for cooling/recovery policy.");
     } else {
         simplePrintln("RTSP server paused by stream schedule. It will resume in the next allowed window.");
     }
@@ -3495,6 +3709,8 @@ void loop() {
     }
 
     if (millis() - lastProducerHealthCheck >= 1000UL) {
+        updateAudioDiagnostics();
+        checkMicrophoneSignal();
         checkAudioProducerHealth();
         lastProducerHealthCheck = millis();
     }
@@ -3573,6 +3789,8 @@ void loop() {
         stopAllRtspClients("RTSP server disabled");
     }
     refreshLegacyRtspState();
+    browserAudioLoop(rtspServerEnabled && !overheatLatched && audioProducerRunning &&
+                     !audioProducerStopRequested && WiFi.status() == WL_CONNECTED, currentSampleRate);
     uint32_t rateNow = millis();
     recentAudioRate.update(rateNow, audioPacketsSent);
     for (uint8_t i = 0; i < 2; ++i) recentStreamRate[i].update(rateNow, streamStats[i].packetsSent);

@@ -7,6 +7,7 @@ tmp/
 
 # Python validation caches
 __pycache__/
+tools/node_modules/
 
 # Editor-generated asset metadata
 *.uid-zps

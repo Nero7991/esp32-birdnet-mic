@@ -1,94 +1,27 @@
-## Web flasher
+# Web flasher and firmware files
 
-Static page for flashing the birdnet-esp32-rtsp-mic firmware (BirdNET-Go / BirdNET-Pi, Seeed XIAO
-ESP32-C3/S3/C5/C6) directly from the browser with ESP Web Tools.
+**Firmware: 1.30** (2026-10-19).
 
-Current firmware: **1.26** (2026-10-11), with improved audio buffering, responsive RTSP/TCP sending,
-capture-based microphone recovery, recent packet-rate readings, and Arduino ESP32 core 3.3.12.
+Install using [esp32mic.msmeteo.cz](https://esp32mic.msmeteo.cz) in desktop **Chrome or Edge**
+with a USB-C **data** cable. The flasher detects the ESP chip family and chooses the image for
+XIAO ESP32-C3/S3/C5/C6. It cannot distinguish other board designs using the same chip.
 
-For new builds, the recommended microphone is **Adafruit SPH0645LM4H** with the selectable
-MSB/left-justified format. Legacy ICS-43434/INMP441 microphones remain supported in the default
-Philips-I2S mode. Firmware artifacts must match the selected board family.
+For wiring, microphone selection and feature status, see the [main guide](../README.md).
+PDM / IM73D122 is **🟡 Experimental**; C3/C5 should use **512 samples per packet** and **160 MHz**.
+Selecting PDM preserves any previously saved packet size.
 
-ESP Web Tools automatically selects the `ESP32-C3`, `ESP32-S3`, `ESP32-C5`, or `ESP32-C6` manifest
-entry based on the connected chip. It cannot distinguish between different boards with the same chip
-family, so the manifest is intended for Seeed XIAO boards with these chips.
+## Choose the right file
 
-ESP Web Tools is bundled locally at `vendor/esp-web-tools/10.4.0/` with its Apache-2.0 license. The
-public flasher therefore does not depend on an unversioned CDN module or external web fonts.
+| Purpose | File | Notes |
+|---|---|---|
+| Update through the device's OTA page | `firmware-app-<board>.bin` | App-only; choose c3, s3, c5 or c6 |
+| Exact 1.30 OTA image | `firmware-app-<board>-1.30.bin` | Same app, versioned filename |
+| USB web installation | `manifest.json` and its referenced parts | Let the web flasher handle offsets |
+| Manual full USB flash | `firmware-<board>.bin` | Merged image; can overwrite settings; never upload through OTA |
+| Legacy unsuffixed files | `firmware-app.bin`, `firmware.bin` | **C6 only** |
 
-Note for 1.22: uses controlled non-blocking RTSP/TCP writes, flushes stale audio after recovered
-transport stalls, lowers the default Wi-Fi TX power to 15 dBm, and filters isolated internal
-temperature-sensor spikes before thermal shutdown.
-
-Note for 1.21: outputs a 256-fs I2S MCLK on physical XIAO pin D7 for experimental PCM1808 ADC
-setups, preserves the existing left-channel mono path for ICS-43434/INMP441, and improves MQTT
-reconnect behavior during an active stream.
-
-Note for 1.20: version-only OTA workflow test build with no functional changes compared with v1.18.
-
-Note for 1.18: OTA installation now shows an immediate protected progress state and reconnects after
-reboot. RTSP TEARDOWN logs now include detailed client and session context.
-
-Note for 1.17: version-only test build for validating the complete device Web UI OTA workflow from
-v1.16. There are no functional firmware changes compared with v1.16.
-
-Note for 1.16: audio settings are applied transactionally, firmware checks no longer block the RTSP
-loop, MQTT reconnect is deferred while streaming, HPF/NVS validation is hardened, default gain is
-1.5, and the default buffer remains 512 samples.
-
-Note for 1.15: automatic OTA compares the published and installed versions before downloading,
-shows a prominent update notice in the device UI, and handles unavailable internet access without
-repeated checks while keeping manual app-only upload available.
-
-Note for 1.14: fixes false long-uptime performance recovery caused by 32-bit packet-rate overflow,
-increases the internal ring-buffer reserve without changing the 512-sample RTP/UDP packet default,
-and improves TCP backpressure tolerance and failure diagnostics.
-
-Note for 1.13: microphone capture uses the current channel-based `i2s_std` API, RTSP/TCP combines
-each interleaved RTP packet before writing, and Web UI handling is capped at 50 Hz. The existing
-BCLK/WS/SD wiring and 512-sample default remain unchanged; MCLK is not enabled.
-
-Note for 1.12: automatic OTA uses the board-specific stable `firmware-app-<board>.bin` alias, which
-is replaced on every deployment. The device no longer pins the download URL to its currently
-installed version, accepts a URL for another board, or falls back to C6 for an unsupported profile.
-The OTA download also rejects invalid content types, missing sizes, short bodies, and disconnects.
-
-Note for 1.11: fixes C3/S3/C5 I2S GPIO selection. Versions 1.10.0 and 1.10.1 incorrectly used
-the C6 GPIO mapping (`21/1/2`) in every board image because Arduino pin labels were tested as
-preprocessor macros instead of C++ constants. The C6 image was not affected.
-
-Note for 1.10.1: the images include XIAO ESP32-C3, XIAO ESP32-S3, XIAO ESP32-C5, and
-XIAO ESP32-C6 builds. OTA update endpoints require the Web UI mutation header and reject merged USB
-firmware images.
-
-Note for 1.10.0: the images add XIAO ESP32-C3, XIAO ESP32-S3, and XIAO ESP32-C5 alongside the
-original XIAO ESP32-C6. The physical microphone wiring is the same by XIAO pin labels
-`D3`/`D1`/`D2`, but the GPIO numbers differ between chips.
-
-Note for 1.9.3: the image includes added RTSP/UDP compatibility for BirdNET-Pi
-(`RTP-Info`, `source`/`ssrc`, and RTCP port handling). It was verified against a clean
-`Nachtzuster/BirdNET-Pi` installation with the `/audio2` stream in BirdNET-Pi/UDP mode.
-
-Default public builds:
-- include separate firmware for XIAO ESP32-C3, XIAO ESP32-S3, XIAO ESP32-C5, and XIAO ESP32-C6,
-- enable the external antenna on the C6 build through the GPIO3/GPIO14 RF switch,
-- do not use firmware GPIO antenna switching on the C3/S3/C5 builds,
-- do not have an OTA password set,
-- belong only on a trusted local network.
-
-Firmware 1.9.2 and newer includes an Arduino IDE build-size fix: the
-`esp32-birdnet-mic/build_opt.h` file disables unused C++ exception/unwind metadata and keeps the
-tight default 1.2 MB app partition on XIAO ESP32-C3/C6 below the limit without removing features.
-
-All supported microphones use the same physical wiring: `SCK` -> D3, `WS` -> D1, `SD` -> D2,
-3.3 V power, and `L/R` or `SEL` -> GND. For the recommended **Adafruit SPH0645LM4H**, select
-**MSB / left-justified** in the device Web UI. ICS-43434 and INMP441 use the default
-**Philips I2S** setting. Choosing the wrong format affects decoded audio only; incorrect wiring or
-5 V power can damage the microphone.
-
-Firmware 1.21 also provides a 256-fs MCLK on D7 for experimental PCM1808 ADC testing. Existing
-ICS-43434 and INMP441 installations leave D7 unconnected and require no wiring change.
+Normal OTA retains saved settings and the existing partition layout; no USB migration is required.
+USB installation may erase settings: choose to keep existing data when updating through the flasher.
 
 ### Structure
 - `index.html` - main page with the "Flash" button and instructions.
@@ -123,29 +56,15 @@ alias for older firmware.
 Do not upload `firmware-<board>.bin` or `firmware.bin` on the OTA page. Those are USB merged images.
 For OTA, use `firmware-app-<board>.bin`; `firmware-app.bin` is the compatible C6 alias.
 
-### How to prepare firmware-<board>.bin
-Generate a merged image, for example:
-```bash
-esptool.py --chip esp32c6 merge_bin \
-  -o firmware-c6.bin \
-  0x0 bootloader.bin \
-  0x8000 partitions.bin \
-  0x10000 firmware-app-c6.bin
-```
-Or use the output from `idf.py build` / `arduino-esp32` if it produces the merged bin directly.
+## Build and host
 
-### Web deployment
+Use the [source build instructions](../esp32-birdnet-mic/README.md#build-and-flash-manually).
+Keep offsets from the target board's generated `flash_args`; do not reuse another chip's offsets.
 
-1. Put `index.html`, `manifest.json`, all `bootloader*.bin`, `partitions*.bin`,
-   `boot_app0*.bin`, `firmware*.bin`, `firmware-app*.bin`, and `ota-version.txt` in the
-   static HTTPS hosting root.
-2. Make sure the MIME types for `.json` and `.bin` are correct (`application/json`, `application/octet-stream`).
-3. Open the page in Chrome/Edge (desktop), allow serial port access, and click "Flash".
+Host `index.html`, `manifest.json`, the firmware parts and `ota-version.txt` together.
+WebSerial needs HTTPS (or localhost). JSON and firmware must have the appropriate MIME types:
+`application/json` and `application/octet-stream`. Automatic device OTA additionally needs direct
+HTTP access to the board-specific app files without redirects.
 
-### GitHub release
-The version is taken from `web-flasher/manifest.json`; the release should include the flasher/OTA
-artifacts from this folder.
-
-### Notes
-- WebSerial works only in desktop Chrome/Edge (not Safari, not Firefox).
-- The page must run over HTTPS (or `http://localhost` for local testing).
+GitHub release assets include all four boards' bootloader, partition, boot_app0, app-only and merged
+images, plus the manifest and version file. See the [changelog](../esp32-birdnet-mic/CHANGELOG.md).

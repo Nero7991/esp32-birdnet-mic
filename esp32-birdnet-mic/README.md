@@ -4,11 +4,12 @@
 
 # birdnet-esp32-rtsp-mic Firmware
 
-Arduino firmware for Seeed XIAO ESP32 I2S microphones that serve **mono 16-bit PCM/L16** audio over
+Arduino firmware for Seeed XIAO ESP32 I2S and experimental PDM microphones that serve **mono 16-bit PCM/L16** audio over
 **RTSP** for **BirdNET-Go** and **BirdNET-Pi**. It also provides a Web UI, JSON API, MQTT telemetry,
 and Home Assistant MQTT Discovery.
 
-- Latest public firmware: **v1.26** (2026-10-11; improved audio buffering and responsive streaming)
+- Latest firmware: **v1.30** (2026-10-19)
+- [Overview, support status and parts](../README.md) · [Release history](CHANGELOG.md)
 - Build targets: Seeed Studio **XIAO ESP32-C3**, **XIAO ESP32-S3**, **XIAO ESP32-C5**, **XIAO ESP32-C6**
 - Runtime-tested board: Seeed Studio **XIAO ESP32-C6**
 - Recommended microphone: **Adafruit SPH0645LM4H** in selectable MSB / left-justified mode
@@ -46,7 +47,7 @@ remains available only as a compatibility alias for stream 1.
 
 ## Access point selection
 
-In **Time & Network → Access point**, leave **Default connection** enabled for the usual
+In **Network → Access point**, leave **Default connection** enabled for the usual
 Wi-Fi behavior, or choose **Choose a specific access point**. Click **Find access points**, select
 one of the access points for your saved Wi-Fi network, then **Save and connect**. Results are
 ordered by signal strength (for example, -58 dBm is stronger than -75 dBm). The current connection
@@ -75,142 +76,12 @@ POST requests require the existing `X-ESP32MIC-CSRF: 1` header. Saving reconnect
 
 Default hostname is unique per device, for example `esp32mic-a1b2c3`.
 
-## What's New In v1.26
+## What's new in 1.30
 
-- More efficient RTSP/TCP sending keeps the Web UI and other connected clients responsive.
-- Improved handling of queued audio and a 64 KiB internal reserve for packet sizes up to 2048 samples.
-- Microphone auto-recovery follows capture activity, with a cooldown between recovery attempts.
-- Packet rates in the Web UI, API and MQTT reflect the most recent ten seconds.
-- MQTT updates are coalesced and sent after audio processing, with bounded socket writes.
-- Arduino ESP32 core updated to 3.3.12; WiFiManager debug output disabled for quieter logs and a smaller image.
-- The default access-point option is now named **Default connection**; connection behavior is unchanged.
-
-## What's New In v1.22
-
-- RTSP/TCP writes now use explicit non-blocking socket sends with a controlled ten-second recovery
-  window, reducing unnecessary FFmpeg reconnects during temporary transport backpressure.
-- Recovered stalls longer than 250 ms and failed clients flush queued stale audio so the stream
-  resumes at the live edge.
-- The default Wi-Fi TX power is reduced to 15 dBm after higher-power C6 testing increased die
-  temperature without preventing transport stalls.
-- Thermal shutdown now requires three consecutive five-second samples at the configured limit,
-  while an excursion 10 C above the limit still stops streaming immediately.
-
-## What's New In v1.21
-
-- Outputs a 256-fs I2S master clock on physical XIAO pin D7 for experimental PCM1808 ADC setups.
-- Continues to read the left I2S slot as mono, so existing ICS-43434 and INMP441 wiring is unchanged.
-- MQTT can retry a disconnected broker with a bounded timeout during an active RTSP stream.
-
-## What's New In v1.20
-
-- Version-only test build for validating the improved OTA installation progress and automatic
-  browser reconnection workflow from v1.18. There are no functional changes compared with v1.18.
-
-## What's New In v1.18
-
-- OTA installation immediately shows a blocking progress state, protects against accidentally
-  leaving the page, and reconnects automatically after the device reboots.
-- Client-requested RTSP TEARDOWN events now log session duration, packet and RTP timing, transport,
-  client address, CSeq, Wi-Fi RSSI, and User-Agent for easier correlation with BirdNET-Go.
-
-## What's New In v1.17
-
-- Version-only test build for validating the complete Web UI automatic OTA workflow from v1.16.
-  There are no functional firmware changes compared with v1.16.
-
-## What's New In v1.16
-
-- Audio configuration changes stop the producer before publishing a new buffer size, preventing the
-  producer from reading a larger block into the previous smaller allocation.
-- Firmware availability checks run in a background task, and MQTT reconnect attempts are deferred
-  while RTSP is streaming, so unavailable internet or MQTT services do not block the stream loop.
-- HPF cutoff values are kept below 45% of the active sample rate, preventing repeated coefficient
-  resets for invalid rate/cutoff combinations.
-- Persisted settings are validated at boot and invalid values are replaced with safe defaults instead
-  of risking allocation failures or restart loops. Factory defaults now reliably re-enable time sync.
-- Default gain is 1.5; the default packet buffer remains 512 samples.
-
-## What's New In v1.15
-
-- Automatic OTA now checks `ota-version.txt` and compares `major.minor` versions before downloading.
-  The install endpoint blocks equal, older, malformed, or unavailable versions, so an unnecessary
-  firmware download cannot interrupt the stream.
-- The main Web UI shows a prominent update banner only when a newer version is confirmed. The
-  firmware page separately reports update available, up to date, or check failed.
-- Offline operation remains supported: a failed check is cached for one hour, the main UI makes no
-  automatic retry in the same page session, and manual app-only firmware upload remains available.
-
-## What's New In v1.14
-
-- Fixed long-running packet-rate calculations to use 64-bit arithmetic. The previous 32-bit
-  multiplication overflowed after about 12.7 hours at 48 kHz/512 samples and caused false automatic
-  I2S recovery.
-- Increased the internal audio ring-buffer reserve to at least 32 KiB for normal packet sizes while
-  retaining the 512-sample RTP/UDP packet default.
-- Extended the TCP write tolerance from 30 ms to 100 ms and added failure diagnostics for partial
-  progress, elapsed time, available TCP space, ring-buffer use, connection state, and Wi-Fi RSSI.
-
-## What's New In v1.13
-
-- Migrated microphone capture from the deprecated legacy I2S API to the current channel-based
-  `i2s_std` API without changing the existing BCLK/WS/SD wiring or adding an MCLK output.
-- RTSP-over-TCP now combines the interleaved framing header, RTP header, and audio payload before
-  writing, reducing calls into the TCP stack.
-- Web UI request handling is capped at 50 Hz so an open browser tab does not monopolize the main
-  loop while audio is streaming.
-- The default audio packet buffer remains **512 samples** for BirdNET-Pi/UDP compatibility.
-
-## What's New In v1.12
-
-- Automatic OTA now uses the board-specific stable latest alias (`firmware-app-c3.bin`,
-  `firmware-app-s3.bin`, `firmware-app-c5.bin`, or `firmware-app-c6.bin`). It no longer builds a URL
-  from the currently installed version, which prevented older devices from discovering a release.
-- The automatic OTA URL is compiled from the board profile, is not editable in the Web UI, and must
-  exactly match that board. Unsupported generic builds no longer fall back to the C6 image.
-- OTA pull validates HTTP status, content type, content length, download completeness, app partition
-  capacity, and premature connection closure before accepting the update.
-- Release validation checks version format, board mappings, stable/versioned/manual binary equality,
-  C6 compatibility aliases, and public firmware checksums.
-
-## What's New In v1.11
-
-- Fixed I2S pin selection for XIAO ESP32-C3/S3/C5 builds. Arduino exposes `D1`/`D2`/`D3` as C++
-  constants, so the previous preprocessor test did not detect them and incorrectly selected the C6
-  fallback GPIOs (`21/1/2`) for every board.
-- I2S startup logs now include the active BCLK/WS/SD GPIO numbers for wiring diagnostics.
-
-## What's New In v1.10.1
-
-- OTA update endpoints now require the same mutation header as other state-changing Web UI/API calls.
-- Automatic OTA URLs were generated from the compiled firmware version. This behavior was replaced
-  in v1.12 because it pinned devices to their already-installed release.
-- OTA rejects oversized or merged USB firmware images, including 4 MB and 8 MB full-flash files.
-- GitHub Actions compile-checks all supported XIAO ESP32-C3/S3/C5/C6 targets.
-
-## What's New In v1.10.0
-
-- Added board profiles for Seeed Studio XIAO ESP32-C3, XIAO ESP32-S3, XIAO ESP32-C5, and XIAO ESP32-C6.
-- I2S wiring now uses the same physical XIAO pin labels on supported boards: `D3` for BCLK, `D1`
-  for LRCLK/WS, and `D2` for data.
-- XIAO ESP32-C6 keeps firmware-controlled external antenna selection through GPIO3/GPIO14.
-- XIAO ESP32-C3, XIAO ESP32-S3, and XIAO ESP32-C5 builds do not touch antenna-control GPIOs.
-- `/api/status`, MQTT device metadata, and the OTA page expose the compiled board profile.
-- Web flasher artifacts now include separate C3/S3/C5/C6 images and a manifest that lets ESP Web
-  Tools select firmware by connected chip family.
-
-## What's New In v1.9.3
-
-- Default buffer is now **512 samples** after BirdNET-Pi UDP testing showed stutter with 1024-sample
-  packets.
-- BirdNET-Pi UDP compatibility is improved by handling the advertised RTCP port and adding standard
-  RTP metadata expected by ffmpeg-based clients.
-- UDP was validated with a clean Nachtzuster/BirdNET-Pi install using `/audio2` in BirdNET-Pi mode.
-- Sample rate settings now accept **8,000-192,000 Hz** in both the Web UI and API.
-- Audio settings are saved only after the I2S pipeline restarts successfully; unsupported settings
-  roll back immediately instead of silently reverting later.
-- Web UI dirty-field highlighting now clears reliably after successful saves and stays visible when
-  a save is rejected.
+Redesigned collapsible Web UI, browser listening, experimental IM73D122 PDM support,
+microphone signal monitoring, optional recovery after cooling, audio diagnostics and improved
+memory use. Normal OTA preserves the existing partition layout and saved settings.
+See the [changelog](CHANGELOG.md) for the complete history.
 
 ## Hardware
 
@@ -236,7 +107,7 @@ by chip.
 | **VDD** | 3V3 | - | - | - | - | Power |
 | **GND** | GND | - | - | - | - | Ground |
 
-Use the same physical wiring for all supported microphones and power them from **3.3 V**. Connect
+Use the same physical wiring for the I2S microphones listed here and power them from **3.3 V**. Connect
 `L/R` or `SEL` to **GND** because the firmware reads the left channel. Then select the matching
 format:
 
@@ -253,8 +124,67 @@ the microphone. Incorrect wiring or 5 V power can still cause damage.
 
 Firmware v1.21 outputs MCLK at 256 times the configured sample rate. This allows experimental
 PCM1808 ADC hardware to run in slave I2S mode with its left input captured by the existing mono
-pipeline. The PCM1808 signal level, I2S Shift, analog gain, and noise performance still require
-validation on the complete microphone hardware before it is considered a tested reference setup.
+pipeline. **Testing has not yet produced clean audio without noise**, so PCM1808 remains
+experimental and is not recommended for a new build. No purchase link is provided. Signal level,
+I2S Shift, analog gain and noise performance need further investigation on the complete setup.
+
+### PDM microphones (experimental)
+
+🟡 **Experimental on all four boards.** [IM73D122 module](https://www.aliexpress.com/item/1005010674767599.html).
+
+Choose **PDM microphone (IM73D122)** under **Audio → Microphone format** after connecting
+an external PDM microphone. PDM captures mono 48 kHz audio and keeps the existing RTSP/L16
+output, gain, high-pass filter and diagnostics. I2S Shift is ignored. The firmware selects
+hardware conversion on XIAO ESP32-S3 and software conversion on XIAO ESP32-C3/C5/C6.
+Philips I2S remains the default; existing saved settings are retained on update.
+
+Switch power off before rewiring. For an IM73D122 breakout suitable for 3.3 V:
+
+| Microphone | XIAO connection |
+| --- | --- |
+| VDD | 3V3 (verify the breakout supply specification) |
+| GND | GND |
+| CLK | D3 |
+| DATA | D2 |
+| SEL / L-R | GND (left slot) |
+
+Leave D1 (WS) and D7 (MCLK) disconnected. The PDM clock is 3.072 MHz. Different breakout
+pin orders require checking their labels; the mechanical adapter is optional. Changing
+format briefly interrupts RTSP. If setup fails, format, rate and related settings roll back.
+Selecting PDM sets 48 kHz; switching back to I2S retains that rate, which can then be changed.
+
+Software conversion uses Dan Logue's v15.6 integer filter as its starting point, with streaming
+framing and capture integration maintained here. Its useful passband is approximately 0–16 kHz
+at 48 kHz output; this is not a claim of flat response across the entire Nyquist band.
+The API reports `pdm_supported`, `pdm_decoder`, `pdm_clock_hz`, `pdm_word_stride` and
+`pdm_bit_order`. A raw stride of zero means arrival-rate confirmation is pending.
+Capture starts with paired slots, as found on C3/C5/C6, and measures the raw word rate
+rather than comparing slot values; this also handles IM73D122 data and constant input.
+Startup backlog and DMA-overrun windows are excluded. Software bit order starts MSB-first
+and can be corrected from the microphone signal after stride confirmation. Detection state
+resets when capture restarts. Running at 160 MHz is recommended for software PDM.
+
+Use **512 samples per packet on C3/C5**. Larger buffers consume more RAM; the audio reserve
+now adapts to available internal heap, retaining 80 KiB for Wi-Fi/TCP plus the producer task
+and allocation overhead. C6/S3 retain the full reserve when memory permits. The API reports
+its actual size as `rb_capacity_bytes` and recommends 512 on C3/C5 via
+`buffer_size_recommended`. Saved packet sizes are preserved, including when selecting PDM. If you previously selected
+2048, change it to 512 explicitly on C3/C5; selecting the microphone does not do this for you.
+
+All microphone paths now use integer gain and high-pass processing (`audio_dsp: "integer"`).
+PDM retains 48 kHz and a fixed PCM scale; adjust Gain for PDM, while I2S Shift remains I2S-only.
+Dan reports physical PDM tests on all four boards, including sustained C3/C5 streaming at
+512 samples; those tests used his v15.6 firmware. Our integrated image still needs physical
+PDM validation on each board.
+
+Host signal/framing tests and board builds do not prove physical microphone compatibility.
+Maintainer PDM hardware/audio validation and long-running tests of the integrated firmware
+remain pending. PDM therefore stays experimental.
+
+Reference designs: Dan's broader PDM proposal supplied by email and
+[PR #64](https://github.com/Sukecz/esp32-birdnet-mic/pull/64) (S3 hardware path).
+ESP-IDF documents [raw PDM capture](https://docs.espressif.com/projects/esp-idf/en/v5.5/esp32c6/api-reference/peripherals/i2s.html)
+and its MHz clock-rate configuration separately from PCM output sample rates.
 
 ### XIAO Antenna Paths
 
@@ -280,7 +210,7 @@ GPIO3/GPIO14 block in `setup()`.
 - Buffer: 512 samples
 - I2S shift: 12 bits
 - High-pass filter: ON, 500 Hz
-- Wi-Fi TX power: about 19.5 dBm
+- Wi-Fi TX power: 15 dBm
 - CPU: 160 MHz
 - Thermal shutdown: 80 C, protection ON
 - Max RTSP clients: 2
@@ -296,18 +226,36 @@ backend support should be verified on the target setup.
 
 ## Web UI
 
-The Web UI runs on port **80** and includes:
+The Web UI runs on port **80**.
 
-- Status: IP, RSSI, uptime, heap, server state, stream states, packet rates.
-- Streams: URLs for `/audio1` and `/audio2`, enable/disable, max clients, BirdNET target.
-- Audio: microphone format, sample rate, gain, buffer size, I2S shift, high-pass filter, signal level.
-- Audio API diagnostics: producer state, ring-buffer capacity/chunks/drops/flushes, I2S errors,
-  and RTSP write stalls/timeouts.
-- Time & Network: NTP state, microphone location/time zone, mDNS, stream schedule, optional deep sleep, Wi-Fi actions.
-- Reliability: microphone auto-recovery, output-rate warning threshold, performance check interval, scheduled reset. A slow network does not restart a healthy microphone; automatic recovery requires stopped capture reads and has a cooldown. Packet rates use a recent ten-second window and count frames handed to transport, not confirmed receiver delivery.
-- Thermal: current/peak temperature, shutdown limit, protection latch, acknowledgement.
-- MQTT & Home Assistant: broker settings, publish interval, discovery republish.
-- Firmware update: open `/ota` or click **Firmware update** in the Web UI.
+![Web UI](../assets/webui2.png)
+
+*Development screenshot (v1.27); interface included in v1.30.*
+
+The header contains **Listen / Stop**, **Playback volume (0–100%)** and a brief
+microphone, RTSP, Wi-Fi and temperature overview. Each link opens the relevant section.
+All nine sections start collapsed on every page load; opening one leaves the others
+unchanged. Background refresh preserves expansion state and pending edits.
+Edits remain marked **Unsaved** until explicitly applied or discarded. Every save
+reports its result; a failed request keeps the draft. **Factory reset** asks for
+confirmation and lists what is reset.
+
+- **Streams**: `/audio1` and `/audio2`, target system, transport, URLs, client states and shared RTSP client limit.
+- **Stream health**: microphone signal, audio load, recent/total DMA overruns, capture state, I2S errors, TCP counters, buffer drops and last stop. Lifetime counters are informational; old errors do not keep a current warning active.
+- **Audio**: microphone, signal level, gain and HPF, followed by **Advanced audio settings** for sample rate, RTP packet size and I2S shift. **Audio per packet** is packet duration, not total listening delay. Both RTSP streams share these settings. PDM fixes the sample rate at 48 kHz and disables unused I2S Shift.
+- **Time & Schedule**: NTP, time zone, streaming window and optional deep sleep.
+- **Network**: IP, RSSI, access point selection, Wi-Fi transmit power, mDNS and connection actions.
+- **Thermal management**: current/peak temperature, shutdown limit, cooling recovery, latch/history, acknowledgement and CPU frequency.
+- **Recovery & Maintenance**: microphone auto-recovery, output-rate warnings, warning check interval, scheduled reboot and service actions. A slow network does not restart a healthy microphone; automatic recovery requires stopped capture reads and has a cooldown.
+- **MQTT & Home Assistant**: broker connection, publishing, discovery and connection status.
+- **Logs**: device log and download.
+
+Microphone and thermal warnings remain visible above the sections. Firmware updates are
+available through **Firmware update** in the header or directly at `/ota`.
+The overview distinguishes waiting for a client, disabled streams, a scheduled pause
+and cooling. **Save schedule** applies the whole streaming window and sleep choice
+together. **Save connection** applies the MQTT broker settings together; an empty
+password keeps the saved password, and **Clear saved password** explicitly removes it.
 
 ## Firmware Update Without USB
 
@@ -379,11 +327,11 @@ BirdNET-Go or BirdNET-Pi.
 
 ### Stream Schedule And Deep Sleep
 
-Stream schedule is configured in Time & Network.
+Stream schedule is configured in **Time & Schedule**.
 
 - Cross-midnight windows are supported, for example `22:00-06:00`.
 - If time is invalid, schedule policy is fail-open: streaming stays allowed.
-- If start and stop are equal, the window is explicitly empty and streaming is blocked.
+- The UI rejects an enabled schedule with equal start/stop times. If such a window was saved previously, streaming stays blocked until corrected.
 - Optional deep sleep can run outside the stream window only when time is valid.
 - Deep-sleep wake timing uses the next local schedule start across daylight-saving changes; the clock may still need NTP after waking.
 - Deep sleep is blocked during startup grace, with active clients, or without valid time.
@@ -396,6 +344,41 @@ stream_start_min=<0..1439>
 stream_stop_min=<0..1439>
 deep_sleep_sched=on|off
 ```
+
+## Listen in the browser
+
+In the page header, press **Listen**. The device streams the same processed mono PCM used
+by RTSP, including gain and HPF, for both I2S and hardware/software-decoded PDM microphones.
+Playback uses the active sample rate; PDM remains fixed at 48 kHz. Playback volume changes only
+browser playback, not the microphone gain or the BirdNET stream.
+
+One browser can listen at a time, independently of the RTSP client limit. Keep the page
+open and visible; Stop, leaving the page or hiding the tab ends playback. A slow browser
+connection ends only the preview. Audio reconfiguration, OTA, Wi-Fi reconnect, server OFF,
+scheduling and thermal shutdown close the preview; press Listen again when ready.
+
+The preview uses HTTP port **81**, `/listen.wav`, with a bounded separate 16 KiB buffer.
+Open the device's HTTP Web UI directly; network filtering must permit both ports 80 and 81.
+Cross-origin browser access is limited to the matching device page on port 80.
+
+## Microphone signal health
+
+The header and **Stream health → Microphone signal** report `checking`, `ok`, `flatline` or `unavailable`.
+The detector examines raw I2S samples or decoded PDM PCM **before user gain, shift and HPF**.
+Twenty seconds without changing values (including all-zero input) produces a warning;
+normal quiet recordings still contain microphone noise and count as a changing signal.
+This is a signal-change check, not proof of correct wiring, alignment or sound quality.
+
+No microphone reset is triggered by this warning. A changing signal clears it automatically.
+Restart/reconfiguration resets the detector; absent/stale capture reports unavailable.
+`GET /api/audio_status` and MQTT state include `mic_signal` and `mic_flatline_sec`.
+The audio API also reports `browser_listening`.
+
+## Audio diagnostics
+
+The **Stream health** table reports **Audio processing (estimate)**. This measures time spent processing captured audio, excluding blocking microphone-read waits, over two-second windows. Scheduling delays can inflate the estimate; it is not total chip CPU usage. The peak resets when audio capture restarts. The API fields `audio_cpu_pct` and `audio_cpu_peak_pct` are `null` until a complete window is available, while capture is stopped, or after two seconds without a successful read; `audio_cpu_valid` states whether they are usable.
+
+**I2S DMA overruns** count receive buffers overwritten before capture could read them. They are separate from ring-buffer drops and RTSP/network counters. `dma_overruns_total` lasts until device reboot; `dma_overruns_1min` is a rolling count sampled about once per second. A delayed poll attributes accumulated increments to that poll, so recent counts and `dma_overrun_last_age` have polling precision. Counts pause during capture reconfiguration. If callback registration fails, `dma_overruns_available` is false and numeric fields are `null`, rather than claiming zero loss. Diagnostics do not reset I2S or change the audio signal.
 
 ## JSON API
 
@@ -412,6 +395,11 @@ GET /api/logs
 ```
 
 Mutating calls use `POST` and require header `X-ESP32MIC-CSRF: 1`.
+
+Grouped settings use URL-encoded bodies and validate all fields before saving:
+
+- `POST /api/settings/schedule`: `enabled=on|off`, `start` and `stop` in local minutes since midnight (0–1439), and `sleep=on|off`. An enabled window must have different start/end times; sleep requires an enabled schedule.
+- `POST /api/settings/mqtt`: `enabled=on|off`, `host`, `port`, `user`, `password`, and `clear_password=on|off`. An empty password with clearing off retains the saved password. Clearing and supplying a replacement together is rejected. The broker reconnects once after a successful save.
 
 Common settings endpoint:
 
@@ -495,29 +483,63 @@ MQTT password is stored in device flash in plain text NVS.
 
 ## Build And Flash Manually
 
+### Recommended: Bash and Arduino CLI
+
+Use Bash (Linux/macOS or Windows WSL), Python 3 and Arduino CLI **1.5.0**.
+Run commands from the repository root, not from the sketch directory.
+For first-time setup, add the [Espressif package index](https://docs.espressif.com/projects/arduino-esp32/en/latest/installing.html)
+and install the core/libraries pinned in `build-dependencies.json`:
+
+```bash
+arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+python3 tools/check_build_dependencies.py --install
+```
+
+Example for XIAO ESP32-C6:
+
+```bash
+tools/compile_firmware.sh --fqbn esp32:esp32:XIAO_ESP32C6 \
+  --output-dir esp32-birdnet-mic/build/c6
+```
+
+| Board | FQBN |
+|---|---|
+| XIAO ESP32-C3 | `esp32:esp32:XIAO_ESP32C3` |
+| XIAO ESP32-S3 | `esp32:esp32:XIAO_ESP32S3` |
+| XIAO ESP32-C5 | `esp32:esp32:XIAO_ESP32C5` |
+| XIAO ESP32-C6 | `esp32:esp32:XIAO_ESP32C6` |
+
+Change the FQBN and output folder together when building another board.
+The helper automatically enables LTO at compilation and linking for C3/C6 and isolates their
+Arduino core build artifacts. S3/C5 retain normal compilation. The all-board packaging script
+and GitHub Actions use the same helper, so no per-release flag changes are needed.
+
+For OTA, open **Firmware update -> Upload compiled file** on the device and select
+`esp32-birdnet-mic/build/c6/esp32-birdnet-mic.ino.bin` from this example.
+Choose the image for the correct board. The `.ino.bin` is app-only; `.merged.bin` is for USB,
+not OTA. The existing OTA partition layout and automatic download URLs are unchanged.
+
+For an initial USB installation, use the same output directory explicitly:
+
+```bash
+arduino-cli upload --fqbn esp32:esp32:XIAO_ESP32C6 --port <PORT> \
+  --input-dir esp32-birdnet-mic/build/c6 esp32-birdnet-mic
+```
+
+When changing the embedded Web UI, first regenerate its assets as described under
+[Web UI Development](#web-ui-development). Generated headers are already included for an ordinary build.
+
 ### Arduino IDE
 
 1. Open `esp32-birdnet-mic/esp32-birdnet-mic.ino`.
 2. Install an ESP32 Arduino core with support for the selected XIAO target.
-3. Select the matching board, for example *XIAO_ESP32C3*, *XIAO_ESP32S3*, *XIAO_ESP32C5*, or
-   *XIAO_ESP32C6*.
+3. Select the matching board: *XIAO_ESP32C3*, *XIAO_ESP32S3*, *XIAO_ESP32C5*, or *XIAO_ESP32C6*.
 4. Compile and upload over USB.
 
-The sketch folder contains `build_opt.h`. Keep it next to the `.ino`; Arduino IDE uses it
-automatically to keep the tight XIAO ESP32-C3/C6 default 1.2 MB app partitions below the size limit.
-
-### arduino-cli
-
-```bash
-arduino-cli compile --fqbn <BOARD_FQBN> esp32-birdnet-mic
-arduino-cli upload -p <PORT> --fqbn <BOARD_FQBN> esp32-birdnet-mic
-```
-
-From outside the repository, use the full sketch path:
-
-```bash
-arduino-cli compile --fqbn <BOARD_FQBN> esp32-birdnet-mic
-```
+Keep `build_opt.h` next to the `.ino`; it reduces the image size by disabling WiFiManager
+serial debug output and unused C++ exception/unwind metadata. Ordinary Arduino IDE or direct
+`arduino-cli compile` builds do not apply the additional C3/C6 LTO settings automatically.
+Use the CLI helper above for the same settings as the packaged firmware and CI.
 
 ### PlatformIO
 
@@ -529,14 +551,27 @@ pio run -t upload
 
 ## Web UI Development
 
-The Web UI source is `webui/index.html`. Firmware serves the compressed generated header
-`WebUI_gz.h` from PROGMEM.
-
-After editing the UI, regenerate the header:
+Install the pinned generator dependencies from the repository root:
 
 ```bash
-./tools/gen_webui_gzip_header.sh
+python3 -m pip install -r tools/requirements-webui.txt
+npm ci --prefix tools --ignore-scripts
 ```
+
+Terser minifies inline JavaScript while preserving names used by HTML handlers.
+Zopfli compresses the resulting HTML and the OTA assets with 15 iterations.
+Readable sources stay in `webui/`; decompression happens in the browser. The device
+does not need a decompressor or internet access. Tests check reproducibility and
+exercise both the source and the actual embedded page.
+
+From the repository root, regenerate after editing any browser asset:
+
+```bash
+esp32-birdnet-mic/tools/gen_webui_gzip_header.sh
+```
+
+This updates `WebUI_gz.h` and `OtaAssets_gz.h` from `webui/index.html`, `webui/ota.css`
+and `webui/ota.js`. Add `--check` to verify that generated headers match without rewriting them.
 
 ## Persisted Configuration
 
@@ -572,7 +607,9 @@ schedReset       Scheduled reset enable
 resetHours       Scheduled reset interval
 ohEnable         Thermal protection enable
 ohThresh         Thermal shutdown threshold C
-ohLatched        Persisted thermal latch
+ohAuto           Automatic thermal recovery enable (default OFF)
+ohRecovery       Persisted retry history, warning and recovery state
+ohLatched        Persisted thermal latch (legacy compatibility)
 ```
 
 Apply changes through Web UI or API. Audio-related updates call `restartI2S()` when needed.
@@ -597,7 +634,7 @@ Current validation ranges include `sampleRate=8000..192000`, `bufferSize=256..81
 - If audio is noisy while Wi-Fi is otherwise stable, try lowering Wi-Fi TX power before changing audio settings.
 - Keep I2S wires short and away from the ESP32 RF area.
 - Use shielded cable for longer microphone runs.
-- Thermal protection disables RTSP when the chip reaches the configured limit; the latch survives reboot until acknowledged in the Web UI.
+- Thermal protection disables RTSP at the configured limit. Optional automatic recovery waits five continuous minutes at least 15 C below the limit. The third shutdown in a rolling 24 hours, an emergency shutdown (limit + 10 C), or a legacy latch requires manual acknowledgement after cooling. History and blocks survive reboot; without a valid clock, unknown event ages are conservatively counted for 24 hours after boot. Sensor errors reset cooling; manual server stops cancel pending automatic recovery. Recovery respects the stream schedule. The warning stays visible until acknowledged, and last-shutdown details remain available.
 
 ## Security
 
@@ -612,12 +649,13 @@ Current validation ranges include `sampleRate=8000..192000`, `bufferSize=256..81
 - No TLS or built-in user authentication for the Web UI/API.
 - mDNS depends on multicast support in your LAN and often does not work across VLANs, guest networks, or Docker bridge networks.
 - The firmware is primarily runtime-tested on Seeed Studio XIAO ESP32-C6 with ICS-43434; C3/S3/C5
-  local v1.26 test builds are compile-verified in Arduino ESP32 core 3.3.12. SPH0645 support was tested on contributor
+  builds are compile-verified in Arduino ESP32 core 3.3.12. SPH0645 support was tested on contributor
   hardware.
 
 ## Credits
 
 - Author: **@Sukecz**
+- PDM contribution and hardware testing: **Dan Logue** (v15.6 reference implementation).
 
 ## License
 

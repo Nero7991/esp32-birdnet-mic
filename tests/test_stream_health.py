@@ -143,6 +143,7 @@ int main() {
     def test_actual_pending_writer_flushes_only_overflow_without_healthy_peer(self):
         self.compile_run(r'''
 #include "StreamHealth.h"
+#include <atomic>
 #include <cassert>
 #include <cerrno>
 #include <cstddef>
@@ -165,7 +166,7 @@ struct ClientSession {
     uint32_t tcpFrameChunk = 1, tcpFrameDropsAtQueue = 10;
 };
 uint32_t nowMs = 300, rtspWriteStallCount = 0, rtspWriteTimeoutCount = 0;
-uint32_t audioRingBufferDropCount = 10;
+std::atomic<uint32_t> audioRingBufferDropCount{10};
 bool peer = false, audioRingBufferFlushPending = false;
 int sent = 0, failed = 0;
 uint32_t millis() { return nowMs; }
@@ -177,7 +178,7 @@ int main() {
     ClientSession session;
     servicePendingTcp(session);
     assert(sent == 1 && !audioRingBufferFlushPending); // Old250ms policy discarded this.
-    audioRingBufferDropCount = 11;
+    audioRingBufferDropCount.fetch_add(1, std::memory_order_relaxed);
     servicePendingTcp(session);
     assert(audioRingBufferFlushPending); // Overflow makes prefix stale.
     audioRingBufferFlushPending = false; peer = true;
@@ -189,6 +190,13 @@ int main() {
     session.tcpWriter.result = CooperativeTcpWriter::TIMED_OUT;
     servicePendingTcp(session);
     assert(failed == 1 && rtspWriteTimeoutCount == 1);
+    // Counter wrap must still detect a drop while a TCP frame was pending.
+    session.tcpWriter.result = CooperativeTcpWriter::COMPLETE;
+    session.tcpFrameDropsAtQueue = UINT32_MAX;
+    audioRingBufferDropCount.store(UINT32_MAX, std::memory_order_relaxed);
+    audioRingBufferDropCount.fetch_add(1, std::memory_order_relaxed);
+    servicePendingTcp(session);
+    assert(audioRingBufferFlushPending);
 }
 ''')
 

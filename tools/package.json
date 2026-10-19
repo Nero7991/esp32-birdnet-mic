@@ -1,0 +1,9 @@
+{
+  "name": "birdnetmic-web-assets",
+  "private": true,
+  "version": "1.0.0",
+  "devDependencies": {
+    "clean-css": "5.3.3",
+    "terser": "5.44.1"
+  }
+}

@@ -1,239 +1,221 @@
 <p align="center">
-  <img src="assets/birdlogo.png" alt="ESP32 RTSP Mic for BirdNET-Go / BirdNET-Pi" width="260" />
+  <img src="assets/birdlogo.png" alt="ESP32 RTSP Mic" width="240" />
 </p>
 
-# birdnet-esp32-rtsp-mic
+# ESP32 RTSP Mic for BirdNET
 
-Seeed XIAO ESP32 network microphone for **BirdNET-Go** and **BirdNET-Pi**. It reads an I2S MEMS
-microphone and serves mono **16-bit PCM/L16** audio over **RTSP**.
+Turn a **Seeed Studio XIAO ESP32** and a digital microphone into a Wi-Fi microphone
+for **BirdNET-Go**, **BirdNET-Pi**, VLC or ffmpeg. Listen in your browser, adjust settings
+and check device health without installing an app.
 
-- Latest public firmware: **v1.26** (2026-10-11; improved audio buffering and responsive streaming)
-- Target sketch: `esp32-birdnet-mic`
-- Web flasher: **https://esp32mic.msmeteo.cz** (Chrome/Edge desktop, USB-C data cable)
-- Manual OTA firmware: `manual-ota-firmware/firmware-app-<board>.bin` (`firmware-app.bin` remains the C6 alias)
-- Detailed firmware docs: `esp32-birdnet-mic/README.md`
-- Changelog: `esp32-birdnet-mic/CHANGELOG.md`
-- License: MIT (`LICENSE`)
+**Latest firmware: v1.30** · [Latest published release](https://github.com/Sukecz/esp32-birdnet-mic/releases/latest)
+· [Web flasher](https://esp32mic.msmeteo.cz) · [Changelog](esp32-birdnet-mic/CHANGELOG.md)
 
-## Quick Start
+## What's new in 1.30
 
-1. Open **https://esp32mic.msmeteo.cz**.
-2. Click **Flash**, select the USB JTAG/serial device, and wait for reboot.
-3. On first boot, connect to Wi-Fi AP **ESP32-RTSP-Mic-AP**.
-4. Open `http://192.168.4.1` if the captive portal does not appear, then enter your Wi-Fi details.
-5. After reboot, open the device Web UI at `http://<device-ip>/`.
-6. Use these RTSP URLs in BirdNET-Go, BirdNET-Pi, VLC, or ffplay:
+- **Redesigned Web UI:** collapsible sections, clear device status and save/discard feedback.
+- **Browser listening:** Listen/Stop and playback volume, alongside your BirdNET streams.
+- **Experimental PDM support:** IM73D122 on XIAO C3/S3/C5/C6, with mono 48 kHz output.
+- **Better diagnostics:** microphone flatline detection, audio-processing load and capture errors.
+- **Optional recovery after cooling:** streaming can resume automatically after a thermal shutdown.
+- **Audio and OTA improvements:** integer audio processing, adaptive memory reserve and smaller C3/C6 builds.
+
+Normal OTA updates keep the existing partition layout and saved settings. No USB migration is required.
+
+## Support at a glance
+
+🟢 **Supported** — implemented; hardware evidence is stated below.
+🟡 **Experimental** — implemented, but integrated hardware validation is incomplete.
+🔴 **Not supported** — unavailable in this firmware.
+
+| Feature | Status | Details |
+|---|---|---|
+| I2S microphones | 🟢 Supported | ICS-43434, SPH0645LM4H and INMP441; see microphone table |
+| PDM / IM73D122 | 🟡 Experimental | 48 kHz mono; physical validation of this integrated firmware is pending |
+| PCM1808 external ADC | 🟡 Experimental | Audio remained noisy in testing; not recommended for a new build |
+| BirdNET-Go / BirdNET-Pi | 🟢 Supported | RTSP over TCP / UDP respectively |
+| Browser listening | 🟢 Supported | One browser listener, separate from RTSP client slots |
+| Web settings, logs and JSON API | 🟢 Supported | Includes microphone, Wi-Fi, temperature and stream health |
+| MQTT / Home Assistant discovery | 🟢 Supported | Optional broker connection |
+| Streaming schedule and deep sleep | 🟢 Supported | Local-time windows, including overnight schedules |
+| Thermal protection | 🟢 Supported | Optional automatic recovery is OFF by default |
+| USB installation and OTA updates | 🟢 Supported | Separate firmware for each supported board |
+| Stereo, USB audio or Bluetooth audio | 🔴 Not supported | Output is mono PCM over the network |
+| SD-card recording | 🔴 Not supported | Recording/analysis belongs on the receiving system |
+
+All four XIAO targets have build support. Maintainer runtime testing primarily uses **C6 with
+ICS-43434**; a successful build does not establish long-term hardware stability on every board.
+
+## Web UI
+
+![Web UI with browser listening, device status and collapsible settings](assets/webui2.png)
+
+*Screenshot from development firmware v1.27; the same interface is included in v1.30.*
+
+## Quick start
+
+1. Choose a board and microphone from the [parts list](#parts-list), then wire it with power disconnected.
+2. Connect the XIAO by **USB-C data cable**. Open the [web flasher](https://esp32mic.msmeteo.cz)
+   in desktop Chrome or Edge, click **Flash**, and select the device. Chip detection selects the image;
+   the supplied firmware is intended for XIAO boards.
+3. Join **ESP32-RTSP-Mic-AP**. Open `http://192.168.4.1` if the setup page does not appear,
+   then save your Wi-Fi details.
+4. Open `http://<device-ip>/` using the address shown in your router's device list.
+5. In **Audio → Microphone format**, select your microphone and apply. Leave other audio
+   settings at their defaults initially; follow the extra PDM steps below if applicable.
+6. Press **Listen** to check the sound. In **Streams**, enable a stream, choose BirdNET-Go or
+   BirdNET-Pi, and copy its URL into that system. Stream 1 is enabled by default; Stream 2 is optional.
 
 ```text
-rtsp://<device-ip>:8554/audio1    Stream 1
-rtsp://<device-ip>:8554/audio2    Stream 2
+rtsp://<device-ip>:8554/audio1    Stream 1 (default target: BirdNET-Go)
+rtsp://<device-ip>:8554/audio2    Stream 2 (default target: BirdNET-Pi)
 ```
 
-If mDNS is enabled and works on your LAN, the same streams are available through the device hostname:
+Both streams share the microphone settings. Up to 1–3 RTSP clients are configurable (default: 2).
+The device's `.local` hostname can replace its IP where your network supports mDNS.
 
-```text
-rtsp://<device-hostname>.local:8554/audio1
-rtsp://<device-hostname>.local:8554/audio2
-```
+## Microphones and wiring
 
-The default hostname is unique per device, for example `esp32mic-a1b2c3`.
+### I2S microphones
 
-Supported XIAO boards:
-
-- [Seeed Studio XIAO ESP32-C3](https://www.seeedstudio.com/Seeed-XIAO-ESP32C3-p-5431.html)
-- [Seeed Studio XIAO ESP32-S3](https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html)
-- [Seeed Studio XIAO ESP32-C5](https://www.seeedstudio.com/Seeed-Studio-XIAO-ESP32C5-p-6609.html)
-- [Seeed Studio XIAO ESP32-C6](https://www.seeedstudio.com/Seeed-Studio-XIAO-ESP32C6-p-5884.html)
-
-Default build notes:
-
-- The web flasher detects the connected ESP chip family and selects the matching firmware.
-- XIAO ESP32-C6 external antenna RF switch is enabled by default.
-- XIAO ESP32-C3, XIAO ESP32-S3, and XIAO ESP32-C5 use their U.FL antenna path without firmware GPIO switching.
-- OTA has no password in the default public build. Keep the device on your trusted LAN.
-- For OTA without USB, open **https://esp32mic.msmeteo.cz**, enter the device IP in the OTA section,
-  and open the device update page.
-- Automatic OTA uses a board-specific stable URL, so installed firmware always downloads the latest
-  published C3/S3/C5/C6 app image instead of rebuilding its own current-version URL.
-- For manual OTA upload, use the matching app-only file from `manual-ota-firmware/`.
-
-## Wiring
-
-For a new build, use the **Adafruit SPH0645LM4H**. It uses the same wiring shown below as the older
-ICS-43434 and INMP441 microphones; only the microphone-format setting is different.
+| Microphone | Select in Audio → Microphone format | Hardware evidence |
+|---|---|---|
+| **Adafruit SPH0645LM4H** | MSB / left-justified | Contributor-tested; recommended I2S option for new builds |
+| **ICS-43434** | Philips I2S (default) | Maintainer-tested reference |
+| **INMP441** | Philips I2S | [User-reported compatible](https://github.com/Sukecz/esp32-birdnet-mic/discussions/25) |
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/connection-dark.png">
   <source media="(prefers-color-scheme: light)" srcset="assets/connection.png">
-  <img alt="Wiring diagram for a XIAO ESP32-C6 and I2S microphone; ICS-43434 module shown" src="assets/connection.png">
+  <img alt="XIAO ESP32-C6 I2S wiring; ICS-43434 module shown" src="assets/connection.png">
 </picture>
 
-*ICS-43434 module shown; use the same connections for SPH0645LM4H and INMP441.*
+Use the **printed XIAO pin labels** below on C3/S3/C5/C6; GPIO numbers differ between boards.
 
-Use the same physical XIAO pin labels on every supported board. The underlying GPIO numbers differ
-by chip.
+| I2S microphone pin | XIAO pin |
+|---|---|
+| VDD / VCC | 3V3 |
+| GND | GND |
+| BCLK / SCK | D3 |
+| LRCLK / WS | D1 |
+| SD / DOUT | D2 |
+| L/R / SEL | GND (left channel) |
 
-Firmware **v1.11 or newer is required for the C3/S3/C5 GPIO mappings below**. Versions 1.10.0 and
-1.10.1 incorrectly used the C6 GPIO mapping (`21/1/2`) in every board build. C6 was not affected.
+Leave D7 unused for these microphones. See the [GPIO table and PCM1808 notes](esp32-birdnet-mic/README.md#i2s-wiring)
+for advanced setups. Use **3.3 V**, not 5 V, for the microphone.
 
-| Mic signal | XIAO pin label | C3 GPIO | S3 GPIO | C5 GPIO | C6 GPIO | Notes |
-|---|:--:|:--:|:--:|:--:|:--:|---|
-| **BCLK / SCK** | **D3** | 5 | 4 | 7 | 21 | I2S bit clock |
-| **LRCLK / WS** | **D1** | 3 | 2 | 0 | 1 | I2S word select |
-| **SD / DOUT** | **D2** | 4 | 3 | 25 | 2 | I2S data from microphone |
-| **MCLK / SCKI** | **D7** | 20 | 44 | 12 | 17 | Optional clock for PCM1808 ADC |
-| **VDD** | 3V3 | - | - | - | - | Power |
-| **GND** | GND | - | - | - | - | Ground |
+### PDM microphone — 🟡 Experimental
 
-All supported microphones use the same wiring and **3.3 V** power. Connect `L/R` or `SEL` to
-**GND** so the microphone uses the left channel read by the firmware. Then choose the matching
-option under **Audio -> Microphone format**:
+The [IM73D122 module](https://www.aliexpress.com/item/1005010674767599.html) uses **different wiring**:
 
-| Microphone | UI format | Recommendation | Validation |
-|---|---|---|---|
-| **Adafruit SPH0645LM4H** | MSB / left-justified | **Recommended for new builds** | Tested on contributor hardware |
-| **ICS-43434** | Philips I2S (default) | Legacy NRND part | Maintainer-tested reference |
-| **INMP441** | Philips I2S (default) | Legacy NRND family; older order codes are EOL | User-reported compatible; see [discussion #25](https://github.com/Sukecz/esp32-birdnet-mic/discussions/25) |
+| PDM microphone pin | XIAO pin |
+|---|---|
+| VDD | 3V3 (check the breakout's supply rating) |
+| GND | GND |
+| CLK | D3 |
+| DATA | D2 |
+| SEL / L-R | GND (left slot) |
 
-Choosing the wrong format only makes the audio decode incorrectly; it does not change the wiring or
-damage the microphone. Incorrect wiring or 5 V power can still cause damage.
+Leave **D1 and D7 disconnected**. Check the module's pin labels before connecting power.
+Select **PDM microphone (IM73D122)** in Audio; this sets **48 kHz** automatically.
+Gain and high-pass filtering remain available; I2S Shift does not apply.
 
-Firmware v1.21 also outputs a 256-fs MCLK on D7 for experimental PCM1808 ADC setups. Configure the
-PCM1808 for slave I2S mode and connect the microphone path to its left input; RTSP output remains
-mono. This path is ready for hardware testing but is not yet a tested reference setup. Existing
-ICS-43434 and INMP441 installations leave D7 unconnected and require no wiring change.
+**On C3/C5, set Audio → Advanced audio settings → RTP packet size to 512 samples,
+and use 160 MHz CPU in Thermal management.** The default packet size is already 512, but
+selecting PDM preserves a previously saved larger size. The firmware reduces its internal audio
+reserve when RAM is limited; this does not automatically change the packet-size setting.
 
-## XIAO Antennas
+S3 uses hardware PDM conversion; C3/C5/C6 use software conversion. Dan Logue reports hardware
+tests with his contributing firmware. Physical microphone and long-running tests of this integrated
+release are still pending, so PDM remains experimental on all four boards.
+[Detailed PDM notes](esp32-birdnet-mic/README.md#pdm-microphones-experimental).
 
-XIAO ESP32-C6 uses an RF switch path controlled by GPIO3/GPIO14. The firmware selects the external
-antenna path by default.
-
-- Use a 2.4 GHz external antenna for stable RTSP streaming.
-- XIAO ESP32-C3 and XIAO ESP32-S3 expose a U.FL antenna connector without a documented firmware GPIO
-  switch.
-- XIAO ESP32-C5 has a dedicated Wi-Fi/BT antenna connector; attach the included antenna before use.
-- Weak Wi-Fi can cause packet loss, retries, and extra heat.
-- If your hardware intentionally uses the internal antenna path, adjust or remove the GPIO3/GPIO14
-  antenna-control block in `setup()` for the C6 build.
-
-## Test The Stream
-
-Use `/audio1` for stream 1 unless you specifically need the old `/audio` URL.
-
-```bash
-ffplay -rtsp_transport tcp rtsp://<device-ip>:8554/audio1
-ffprobe -rtsp_transport tcp rtsp://<device-ip>:8554/audio1
-```
-
-For VLC: *Media* -> *Open Network Stream* -> paste `rtsp://<device-ip>:8554/audio1` or
-`rtsp://<device-ip>:8554/audio2`.
-
-If VLC/ffplay works, use the same RTSP URL in BirdNET-Go or BirdNET-Pi.
-
-## What The Firmware Provides
-
-- English Web UI on port **80** with live status, settings, logs, and actions.
-- JSON API for automation and monitoring.
-- Two RTSP streams: `/audio1` and `/audio2`; `/audio` is an alias for `/audio1`.
-- Configurable **1-3 concurrent RTSP sessions**; default is 2.
-- Per-stream enable/disable and BirdNET-Go / BirdNET-Pi target selection.
-- Transport selection based on target: TCP for BirdNET-Go, UDP for BirdNET-Pi.
-- Dedicated audio producer task with ring buffer between I2S capture and RTSP packet output.
-- Audio/API diagnostics for I2S errors, ring-buffer drops, and RTSP write stalls/timeouts.
-- MQTT telemetry and Home Assistant MQTT Discovery.
-- Stream schedule by local time, including overnight windows.
-- Manual UTC offset or automatic daylight-saving rules for common regions, plus a custom POSIX rule.
-- Optional deep sleep outside the stream schedule window.
-- Auto-recovery, scheduled reset, CPU frequency control.
-- Thermal protection with persistent latch and manual acknowledgement.
-- Configurable high-pass filter for low-frequency rumble.
-- mDNS hostname support and OTA support.
-
-Default audio settings are 48 kHz, mono 16-bit PCM/L16, gain 1.5, and a 512-sample packet buffer.
-The 512-sample default is the balanced profile and avoids the BirdNET-Pi UDP stutter observed with
-1024-sample packets, while still working well for BirdNET-Go TCP. Firmware v1.9.3 and later improves
-BirdNET-Pi UDP compatibility by handling RTCP and RTP metadata expected by ffmpeg-based clients.
-
-## Recommended Hardware
+## Parts list
 
 | Part | Qty | Notes | Link |
 |---|---:|---|---|
 | Seeed Studio XIAO ESP32-C3 | 1 | Supported XIAO target board | [Seeed Studio](https://www.seeedstudio.com/Seeed-XIAO-ESP32C3-p-5431.html) |
-| Seeed Studio XIAO ESP32-S3 | 1 | Supported XIAO target board | [Seeed Studio](https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html) |
+| Seeed Studio XIAO ESP32-S3 | 1 | **Recommended for new builds** | [Seeed Studio](https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html) |
 | Seeed Studio XIAO ESP32-C5 | 1 | Supported XIAO target board | [Seeed Studio](https://www.seeedstudio.com/Seeed-Studio-XIAO-ESP32C5-p-6609.html) |
 | Seeed Studio XIAO ESP32-C6 | 1 | Supported XIAO target board | [Seeed Studio](https://www.seeedstudio.com/Seeed-Studio-XIAO-ESP32C6-p-5884.html) |
 | MEMS I2S microphone **Adafruit SPH0645LM4H** | 1 | **Recommended for new builds**; select MSB / left-justified in the Web UI | [Adafruit](https://www.adafruit.com/product/3421) |
-| MEMS I2S microphone **ICS-43434** | 1 | Tested legacy reference; NRND | [TDK product status](https://product.tdk.com/en/search/sw_piezo/mic/mems-mic/info?part_no=ICS-43434) |
-| MEMS I2S microphone **INMP441** | 1 | Legacy order codes reached EOL; current family listing is NRND; reported compatible with Philips I2S mode | [TDK product status](https://product.tdk.com/en/search/sw_piezo/mic/mems-mic/info?part_no=INMP441) |
+| MEMS I2S microphone **ICS-43434** | 1 | Maintainer-tested I2S reference | [TDK product status](https://product.tdk.com/en/search/sw_piezo/mic/mems-mic/info?part_no=ICS-43434) |
+| MEMS I2S microphone **INMP441** | 1 | User-reported compatible with Philips I2S mode | [TDK product status](https://product.tdk.com/en/search/sw_piezo/mic/mems-mic/info?part_no=INMP441) |
+| PDM microphone **IM73D122 breakout** | 1 alternative | 🟡 Experimental; different wiring from I2S, see below | [AliExpress](https://www.aliexpress.com/item/1005010674767599.html) |
 | Shielded cable, 5+ core | Optional | I2S mic needs 5 conductors: 3V3, GND, BCLK, LRCLK/WS, and SD/DOUT. A 6-core cable is a good practical choice for spare/shield handling. | [AliExpress](https://www.aliexpress.com/item/1005010375728700.html) |
 | 5 V power supply | 1 | At least 1 A recommended. **The AliExpress page may default to 12 V; manually select the 5 V version. Never connect 12 V to the XIAO.** | [AliExpress](https://www.aliexpress.com/item/1005002624537795.html) |
 | 2.4 GHz antenna, IPEX/U.FL | Recommended | Important for stable XIAO Wi-Fi streaming | [AliExpress](https://www.aliexpress.com/item/1005005439361093.html) |
 
+Choose **one board and one microphone**, plus a USB-C data cable for initial setup.
 Links are examples only. Verify the exact part number before buying.
 
 Power the XIAO either through USB-C with a normal USB power supply or through its 5V/VBUS input
 with a regulated 5 V supply. A higher-wattage USB-C supply is fine because the board draws only the
 current it needs. Do not connect USB-C and an external 5 V source at the same time.
 
-## Practical Tips
+## Everyday use and troubleshooting
 
-- Keep I2S wires short; use shielded cable for longer runs.
-- Keep the microphone and I2S wires away from the ESP32 antenna/RF area.
-- Aim for Wi-Fi RSSI better than about **-75 dBm**.
-- Use DHCP reservation or fixed IP if BirdNET cannot resolve mDNS reliably.
-- Keep the device on a trusted LAN; do not expose HTTP/RTSP to the public internet.
+- **No sound:** check wiring and microphone format, enable the RTSP server, then press Listen.
+  A flatline warning means the captured samples have stopped changing; it is not a microphone-quality measurement.
+- **Dropouts:** check Wi-Fi signal, attach the board's antenna, and start with 512 samples per packet.
+  Use the target setting matching BirdNET-Go (TCP) or BirdNET-Pi (UDP).
+- **Noise:** keep microphone wires short and away from the antenna. Try lower Wi-Fi transmit power
+  when the access point is nearby. High-pass filtering reduces low-frequency rumble (default: 500 Hz).
+- **Temperature warning:** improve cooling or placement. Automatic recovery is optional and OFF
+  by default; repeated or emergency shutdowns need acknowledgement after cooling.
+- **Browser playback stops:** only one browser can listen at a time. Leaving/hiding the page,
+  changing audio settings or updating firmware stops playback; press Listen again when ready.
+- **Updates:** open **Firmware update** in the device header. Automatic update uses the published
+  image; manual upload needs `firmware-app-<board>.bin`. Never use a merged `firmware-<board>.bin` for OTA.
 
-### RF Noise / Wi-Fi TX Power
+Keep the device on a trusted LAN: HTTP/RTSP have no built-in user authentication or TLS.
+For setup details, schedules, MQTT and API examples, see the [firmware guide](esp32-birdnet-mic/README.md).
 
-If the stream is stable but the audio is noisy or distorted, try lowering **Wi-Fi TX Power** in the
-Web UI. When the access point is nearby, lower TX power can reduce RF coupling into the microphone,
-wiring, or power rails.
+## Build From Source
 
-Suggested test:
+Use Bash (Linux, macOS, or Windows WSL), Python 3 and Arduino CLI **1.5.0**.
+Run these commands from the repository root. First-time dependency setup:
 
-1. Set Wi-Fi TX Power to about **11 dBm**.
-2. Watch RSSI, packet rate, reconnects, and audio quality for a few minutes.
-3. If Wi-Fi becomes unstable, raise TX power step by step.
+```bash
+arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+python3 tools/check_build_dependencies.py --install
+```
 
-A grounded metal enclosure can help shield microphone wiring, but keep the Wi-Fi antenna outside the
-metal enclosure.
+Build a XIAO ESP32-C6 image:
 
-### High-Pass Filter
+```bash
+tools/compile_firmware.sh --fqbn esp32:esp32:XIAO_ESP32C6 \
+  --output-dir esp32-birdnet-mic/build/c6
+```
 
-The firmware includes a configurable high-pass filter to reduce low-frequency rumble.
+For another supported board, replace `XIAO_ESP32C6` with `XIAO_ESP32C3`, `XIAO_ESP32S3`,
+or `XIAO_ESP32C5` and choose a matching output folder. The helper automatically enables
+LTO for C3/C6; S3/C5 keep normal compilation.
 
-- Default: ON at 500 Hz.
-- Typical range: 300-800 Hz.
-- Web UI: Audio -> `High-pass` and `HPF Cutoff`.
-- API: `POST /api/set` with `key=hp_enable&value=on|off` or `key=hp_cutoff&value=600`.
-- Mutating API calls require header `X-ESP32MIC-CSRF: 1`.
+For OTA, select `esp32-birdnet-mic/build/c6/esp32-birdnet-mic.ino.bin` under
+**Firmware update -> Upload compiled file** in the device Web UI. Use the image built for
+your board; OTA needs the app-only `.ino.bin`, not the `.merged.bin` USB image.
+Existing devices use the same OTA procedure and partition layout.
 
-## Compatibility
+Ordinary Arduino IDE or direct `arduino-cli compile` builds do not automatically enable LTO.
+See the [full build instructions](esp32-birdnet-mic/README.md#build-and-flash-manually)
+for more details.
 
-- Target boards: [Seeed Studio XIAO ESP32-C3](https://www.seeedstudio.com/Seeed-XIAO-ESP32C3-p-5431.html),
-  [XIAO ESP32-S3](https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html),
-  [XIAO ESP32-C5](https://www.seeedstudio.com/Seeed-Studio-XIAO-ESP32C5-p-6609.html), and
-  [XIAO ESP32-C6](https://www.seeedstudio.com/Seeed-Studio-XIAO-ESP32C6-p-5884.html).
-- Web flasher auto-selects firmware by ESP chip family. It cannot distinguish board variants that
-  share the same chip family.
-- Adafruit SPH0645LM4H is recommended for new builds. Select its MSB / left-justified mode.
-- ICS-43434 and INMP441 use the default Philips I2S mode and are legacy NRND families.
-- Other ESP32 boards or I2S microphones may work, but may need pin or I2S format changes.
+### Arduino IDE Build Size
 
-## Arduino IDE Build Size
+Keep `esp32-birdnet-mic/build_opt.h` next to the sketch. The ESP32 Arduino core loads it
+automatically in Arduino IDE and `arduino-cli`; it disables WiFiManager serial debug output
+and unused C++ exception/unwind metadata. The CLI helper above also applies the C3/C6 LTO
+settings used for the packaged firmware.
 
-Firmware v1.9.2 and later includes `esp32-birdnet-mic/build_opt.h`, which the ESP32 Arduino core loads
-automatically in Arduino IDE and `arduino-cli`. It disables WiFiManager serial debug output and unused C++ exception/unwind metadata, and
-keeps the tight XIAO ESP32-C3/C6 default 1.2 MB app partitions below the limit without removing
-firmware features.
+## More documentation
 
-## More Documentation
+- [Firmware guide and API](esp32-birdnet-mic/README.md)
+- [Manual OTA files](manual-ota-firmware/README.md)
+- [Web flasher and firmware file guide](web-flasher/README.md)
+- [Release history](esp32-birdnet-mic/CHANGELOG.md)
 
-- Firmware details, build instructions, API notes: `esp32-birdnet-mic/README.md`
-- Manual OTA firmware: `manual-ota-firmware/README.md`
-- Web flasher notes: `web-flasher/README.md`
-- Firmware changes: `esp32-birdnet-mic/CHANGELOG.md`
+## Credits and license
 
-## License
-
-This project is released under the MIT License. See `LICENSE`.
+Created by **@Sukecz**, with thanks to **Dan Logue** for his PDM contribution and hardware testing,
+and to everyone reporting compatibility and testing new builds. Released under the [MIT License](LICENSE).

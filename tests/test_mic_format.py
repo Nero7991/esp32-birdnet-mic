@@ -19,14 +19,14 @@ class MicFormatContractTest(unittest.TestCase):
     def test_setting_is_validated_and_persisted(self):
         self.assertIn('getUChar("micFormat", DEFAULT_MIC_FORMAT)', SKETCH)
         self.assertIn('putUChar("micFormat", micFormat)', SKETCH)
-        self.assertIn("if (micFormat > MIC_FORMAT_MSB)", SKETCH)
-        self.assertIn("if (newFormat > MIC_FORMAT_MSB) return false;", SKETCH)
+        self.assertIn("if (micFormat > MIC_FORMAT_PDM", SKETCH)
+        self.assertIn("if (newFormat > MIC_FORMAT_PDM", SKETCH)
         self.assertIn("micFormat = oldFormat;", SKETCH)
 
     def test_api_and_ui_contract(self):
         self.assertIn('"\\\"mic_format\\\":" + String(micFormat)', WEBUI_CPP)
         self.assertIn('key == "mic_format"', WEBUI_CPP)
-        self.assertIn("v <= 1", WEBUI_CPP)
+        self.assertIn("v <= 2", WEBUI_CPP)
         self.assertIn("id='sel_mic_format'", WEBUI_HTML)
         self.assertIn("Adafruit SPH0645", WEBUI_HTML)
         self.assertIn("cannot damage the microphone", WEBUI_HTML)

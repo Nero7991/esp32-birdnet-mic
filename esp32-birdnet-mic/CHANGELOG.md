@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.30 - 2026-10-19
+
+### Highlights
+
+- **New Web UI:** nine collapsible sections, clear microphone/stream/Wi-Fi/temperature status, and save/discard feedback that preserves unsaved edits.
+- **Listen in your browser:** play the same processed audio used by RTSP, with a separate volume control and no RTSP client slot used. One browser listener is supported.
+- **🟡 Experimental PDM microphone support:** select IM73D122 on XIAO C3/S3/C5/C6 for mono 48 kHz audio. S3 uses hardware conversion; C3/C5/C6 use software conversion based on Dan Logue's contribution. Physical validation of the integrated firmware remains pending.
+- **Microphone health:** warn after 20 seconds of unchanged captured samples and clear the warning when variation returns.
+- **Optional recovery after cooling:** resume streaming after five continuous minutes at least 15 °C below the shutdown limit. Disabled by default; repeated or emergency shutdowns require manual acknowledgement after cooling.
+
+### Audio, reliability and updates
+
+- Integer gain and high-pass processing, memory-aware audio reserve and safe rollback when audio reconfiguration fails.
+- C3/C5 recommend **512 samples per packet** and 160 MHz for software PDM. The default is 512; selecting PDM preserves a previously saved larger packet size, so change it explicitly.
+- Stream health shows audio-processing load and DMA overruns separately from network and software-buffer errors.
+- Grouped MQTT and schedule saves; smaller Home Assistant discovery implementation preserves existing entity IDs.
+- Manual OTA upload fixes, compressed web assets and smaller C3/C6 builds using LTO.
+- Updated documentation, microphone wiring, parts links and Web UI screenshot.
+
+### Upgrading and limitations
+
+- Normal board-specific app-only OTA preserves settings and the partition layout. No USB migration is required; unsuffixed firmware files remain C6 aliases.
+- Browser playback stops on hidden pages, audio changes, scheduled/thermal shutdown or OTA; press Listen again when ready.
+- PCM1808 ADC support also remains experimental: testing has not yet produced clean audio without noise.
+- PDM remains experimental on all four boards. Contributor hardware tests used Dan's firmware; they do not replace long-running tests of this integrated release.
+- Maintainer hardware testing primarily covers C6 with an I2S microphone. See the [development validation record](https://github.com/Sukecz/esp32-birdnet-mic/blob/main/release-notes/1.30-development.md) for prior tests and their limits.
+
 ## 1.26 - 2026-10-11
 
 - Streaming: more efficient RTSP/TCP sending keeps the Web UI and other connected clients responsive.

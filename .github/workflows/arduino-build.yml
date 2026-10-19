@@ -11,10 +11,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install web asset generator
+        run: |
+          python3 -m pip install -r tools/requirements-webui.txt
+          npm ci --prefix tools --ignore-scripts
+
       - name: Validate OTA release contract
         run: |
           python3 tests/validate_ota_contract.py
           node tests/webui_health_test.js
+          node tests/thermal_recovery_ui_test.js
           python3 -m unittest discover -s tests -p 'test_*.py'
           g++ -std=c++11 -Wall -Wextra -Werror tests/discovery_progress_test.cpp -o /tmp/discovery-test
           /tmp/discovery-test
@@ -52,4 +58,4 @@ jobs:
 
       - name: Compile ${{ matrix.name }}
         run: |
-          arduino-cli compile --fqbn "${{ matrix.fqbn }}" esp32-birdnet-mic
+          tools/compile_firmware.sh --fqbn "${{ matrix.fqbn }}"

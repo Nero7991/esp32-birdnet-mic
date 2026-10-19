@@ -2,6 +2,7 @@
 #include <math.h>
 #include <time.h>
 #include <errno.h>
+#include <atomic>
 #include <stdlib.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -10,10 +11,15 @@
 #include <WiFiManager.h>
 #include <ESPmDNS.h>
 #include "WebUI.h"
+#include "AudioDiagnostics.h"
+#include "MicrophoneSignal.h"
+#include "BrowserAudio.h"
 #include "WifiAp.h"
+#include "ThermalRecovery.h"
 #include <algorithm>
 #include <vector>
 #include "WebUI_gz.h"
+#include "OtaAssets_gz.h"
 
 // External variables and functions from main (.ino) – ESP32 RTSP Mic for BirdNET-Go / BirdNET-Pi
 extern WiFiServer rtspServer;
@@ -34,18 +40,26 @@ extern float maxTemperature;
 extern bool rtspServerEnabled;
 extern uint32_t audioPacketsSent;
 extern uint32_t audioI2SErrorCount;
-extern uint32_t audioRingBufferDropCount;
+extern std::atomic<uint32_t> audioRingBufferDropCount;
 extern uint32_t audioRingBufferChunkCount;
 extern uint32_t audioRingBufferFlushCount;
 extern uint32_t rtspWriteStallCount;
 extern uint32_t rtspWriteTimeoutCount;
 extern size_t audioRingBufferCapacityBytes;
 extern volatile bool audioProducerRunning;
+extern volatile bool audioProducerStopRequested;
+extern volatile uint32_t audioProducerLastReadMs;
+extern std::atomic<uint32_t> audioProcessingLoadSnapshot;
+extern DmaOverrunStatus getI2sDmaStatus();
 extern uint32_t currentSampleRate;
 extern float currentGainFactor;
 extern uint16_t currentBufferSize;
 extern uint8_t i2sShiftBits;
 extern uint8_t micFormat;
+extern bool pdmMicSupported();
+extern const char* pdmDecoderName();
+extern uint8_t pdmRawWordStride();
+extern const char* pdmRawBitOrder();
 extern uint32_t minAcceptableRate;
 extern uint32_t performanceCheckInterval;
 extern bool autoRecoveryEnabled;
@@ -59,6 +73,7 @@ extern uint32_t resetIntervalHours;
 extern void scheduleReboot(bool factoryReset, uint32_t delayMs);
 extern volatile unsigned long wifiReconnectAt;
 extern void scheduleWifiReconnect(const uint8_t *bssid, uint32_t delayMs);
+extern MicrophoneSignal microphoneSignal;
 extern uint16_t lastPeakAbs16;
 extern uint32_t audioClipCount;
 extern bool audioClippedLastBlock;
@@ -75,6 +90,10 @@ extern bool overheatSensorFault;
 extern float lastTemperatureC;
 extern bool lastTemperatureValid;
 extern bool overheatLatched;
+extern bool overheatAutoResumeEnabled;
+extern ThermalRecovery thermalRecovery;
+extern bool acknowledgeThermalShutdown();
+extern void cancelThermalResume();
 struct StreamProfileConfig { uint8_t target; };
 extern StreamProfileConfig streamProfiles[2];
 extern bool streamEnabled[2];
@@ -261,18 +280,22 @@ static bool requireMutationAuth() {
     return false;
 }
 
-// HTML UI (gzip-compressed in PROGMEM)
-static void httpIndex() {
-    // Avoid stale UI after firmware updates (browser caches).
+// Static browser assets are decompressed by the browser, never by the ESP32.
+static void sendGzipAsset(const char* type, const uint8_t* bytes, size_t length) {
     web.sendHeader("Cache-Control", "no-store");
     web.sendHeader("Content-Encoding", "gzip");
     web.sendHeader("Vary", "Accept-Encoding");
-    web.send_P(
-        200,
-        PSTR("text/html; charset=utf-8"),
-        reinterpret_cast<PGM_P>(WEBUI_INDEX_GZ),
-        WEBUI_INDEX_GZ_LEN
-    );
+    web.send_P(200, type, reinterpret_cast<PGM_P>(bytes), length);
+}
+
+static void httpIndex() {
+    sendGzipAsset("text/html; charset=utf-8", WEBUI_INDEX_GZ, WEBUI_INDEX_GZ_LEN);
+}
+static void httpOtaCss() {
+    sendGzipAsset("text/css; charset=utf-8", OTA_CSS_GZ, OTA_CSS_GZ_LEN);
+}
+static void httpOtaJs() {
+    sendGzipAsset("application/javascript; charset=utf-8", OTA_JS_GZ, OTA_JS_GZ_LEN);
 }
 
 // HTTP handlery
@@ -310,10 +333,9 @@ static void sendOtaPage(const String &message = String(), bool ok = true) {
     html.reserve(8000);
     html += F("<!doctype html><html><head><meta charset='utf-8'>");
     html += F("<meta name='viewport' content='width=device-width,initial-scale=1'>");
-    html += F("<title>Firmware update</title><style>");
-    html += F(":root{--bg:#f6f7fb;--fg:#0f172a;--muted:#526079;--card:#fff;--border:#d7dee9;--acc:#0ea5e9;--ok:#10b981;--warn:#f59e0b;--bad:#ef4444}");
-    html += F("@media(prefers-color-scheme:dark){:root{--bg:#07101f;--fg:#e8eefc;--muted:#a7b3cb;--card:#111a2c;--border:#26344f}}");
-    html += F("*{box-sizing:border-box}body{margin:0;background:radial-gradient(900px 600px at 10% -10%,rgba(14,165,233,.18),transparent),var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,sans-serif}.wrap{max-width:760px;margin:0 auto;padding:24px 14px}.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px;margin:0 0 14px;box-shadow:0 12px 34px rgba(0,0,0,.10)}h1{font-size:26px;margin:0 0 8px}.muted{color:var(--muted);line-height:1.45}.msg,.version-state{border-radius:12px;padding:12px 14px;margin:0 0 14px;border:1px solid var(--border)}.version-state.update{background:rgba(245,158,11,.16);border-color:var(--warn);font-size:17px;font-weight:850}.version-state.current{background:rgba(16,185,129,.10);border-color:var(--ok)}.ok{color:var(--ok)}.bad{color:var(--bad)}input{width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:transparent;color:var(--fg);font:inherit;margin:8px 0 12px}button,a.btn{display:inline-block;border:1px solid var(--border);background:linear-gradient(120deg,var(--acc),#f59e0b);color:#082f49;border-radius:12px;padding:11px 14px;font-weight:800;text-decoration:none;cursor:pointer}button.secondary,a.secondary{background:transparent;color:var(--fg)}button:disabled{opacity:.55;cursor:not-allowed}code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;word-break:break-all}.ota-progress{position:fixed;inset:0;z-index:9999;display:none;place-items:center;padding:20px;background:rgba(2,6,23,.78);backdrop-filter:blur(4px)}.ota-progress.active{display:grid}.ota-progress-box{width:min(430px,100%);padding:26px;text-align:center;background:var(--card);border:1px solid var(--border);border-radius:18px;box-shadow:0 24px 70px rgba(0,0,0,.4)}.spinner{width:48px;height:48px;margin:0 auto 18px;border:5px solid var(--border);border-top-color:var(--acc);border-radius:50%;animation:spin .9s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.ota-progress h2{margin:0 0 9px}.ota-progress p{margin:0;color:var(--muted);line-height:1.5}</style></head><body><div id='ota-progress' class='ota-progress' role='alert' aria-live='assertive'><div class='ota-progress-box'><div class='spinner'></div><h2 id='ota-progress-title'>Installing firmware…</h2><p id='ota-progress-text'>Do not disconnect power or close this page.</p></div></div><div class='wrap'>");
+    html += F("<title>Firmware update</title><link rel='stylesheet' href='/ota.css'></head><body data-ota-checking='");
+    html += versionChecking ? '1' : '0';
+    html += F("'><div id='ota-progress' class='ota-progress' role='alert' aria-live='assertive'><div class='ota-progress-box'><div class='spinner'></div><h2 id='ota-progress-title'>Installing firmware…</h2><p id='ota-progress-text'>Do not disconnect power or close this page.</p></div></div><div class='wrap'>");
     html += F("<div class='card'><h1>Firmware update</h1><p class='muted'>Device: <code>");
     html += htmlEscape(deviceUrl);
     html += F("</code><br>Current firmware: <strong>v");
@@ -359,11 +381,7 @@ static void sendOtaPage(const String &message = String(), bool ok = true) {
     html += F("<div class='card'><h2>Upload compiled file</h2><p class='muted'>Use this when the device has no internet access. Select the matching app-only file such as <code>firmware-app-c3.bin</code>, <code>firmware-app-s3.bin</code>, <code>firmware-app-c5.bin</code>, or <code>firmware-app-c6.bin</code>. Do not upload the USB <code>firmware.bin</code> merged image here.</p>");
     html += F("<form id='ota-upload-form' method='post' action='/ota/upload' enctype='multipart/form-data'>");
     html += F("<input type='file' name='firmware' accept='.bin,application/octet-stream' required><button type='submit'>Upload and install file</button></form></div>");
-    html += F("<script>(function(){var busy=false,allowLeave=false,overlay=document.getElementById('ota-progress'),title=document.getElementById('ota-progress-title'),detail=document.getElementById('ota-progress-text');function setText(t,d){title.textContent=t;detail.textContent=d;}function begin(t,d){busy=true;setText(t,d);overlay.classList.add('active');document.querySelectorAll('button,input,a.btn').forEach(function(el){el.disabled=true;el.setAttribute('aria-disabled','true');});}window.addEventListener('beforeunload',function(e){if(busy&&!allowLeave){e.preventDefault();e.returnValue='Firmware update is in progress.';}});function replaceWithResponse(r){busy=false;allowLeave=true;return r.text().then(function(t){document.open();document.write(t);document.close();});}function waitForDevice(){setText('Firmware installed','The device is rebooting. This page will reconnect automatically…');var tries=0;setTimeout(function poll(){fetch('/api/status?ota_reconnect='+Date.now(),{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('not ready');allowLeave=true;location.replace('/ota');}).catch(function(){tries++;if(tries<120)setTimeout(poll,1500);else{busy=false;setText('Reconnection is taking longer than expected','The firmware was installed. Reopen the device page when it is back online.');}});},4000);}function handleResponse(r){if(r.headers.get('X-ESP32MIC-OTA-Reboot')==='1'){return r.text().then(waitForDevice);}return replaceWithResponse(r);}function fail(e){busy=false;overlay.classList.remove('active');document.querySelectorAll('button,input,a.btn').forEach(function(el){el.disabled=false;el.removeAttribute('aria-disabled');});alert('Update request failed: '+e);}var install=document.getElementById('ota-install-form');if(install){install.addEventListener('submit',function(e){e.preventDefault();if(!confirm('Install firmware update now? The stream will stop and the device will reboot.'))return;begin('Downloading and installing firmware…','Do not disconnect power or close this page. The stream will stop temporarily.');fetch('/ota/install',{method:'POST',cache:'no-store',headers:{'X-ESP32MIC-CSRF':'1'}}).then(handleResponse).catch(fail);});}var upload=document.getElementById('ota-upload-form');if(upload){upload.addEventListener('submit',function(e){e.preventDefault();if(!confirm('Upload and install selected firmware now?'))return;begin('Uploading and installing firmware…','Do not disconnect power or close this page. The stream will stop temporarily.');fetch('/ota/upload',{method:'POST',cache:'no-store',headers:{'X-ESP32MIC-CSRF':'1'},body:new FormData(upload)}).then(handleResponse).catch(fail);});}");
-    if (versionChecking) {
-        html += F("var tries=0;function poll(){fetch('/api/ota_status',{cache:'no-store'}).then(function(r){return r.json();}).then(function(j){if(j&&j.checking&&tries++<10){setTimeout(poll,750);}else{location.replace('/ota');}}).catch(function(){if(tries++<10)setTimeout(poll,750);});}setTimeout(poll,750);");
-    }
-    html += F("})();</script>");
+    html += F("<script src='/ota.js'></script>");
     html += F("</div></body></html>");
     web.sendHeader("Cache-Control", "no-store");
     web.send(200, "text/html; charset=utf-8", html);
@@ -389,15 +407,12 @@ static bool validateOtaImageSize(size_t imageSize, String &errorOut) {
         errorOut = F("This looks like a merged USB firmware image. OTA needs the matching app-only firmware-app-*.bin file.");
         return false;
     }
-    uint32_t freeSketchSpace = ESP.getFreeSketchSpace();
-    if (freeSketchSpace > 0) {
-        uint32_t maxSketchSpace = freeSketchSpace > 0x1000UL
-            ? (freeSketchSpace - 0x1000UL) & 0xFFFFF000UL
-            : 0;
-        if (maxSketchSpace > 0 && imageSize > maxSketchSpace) {
-            errorOut = F("Firmware image is larger than the OTA app partition. Use the matching app-only firmware-app-*.bin file.");
-            return false;
-        }
+    // Arduino-ESP32 returns the next OTA partition's exact size, unlike the
+    // old ESP8266 sketch-space formula. Update validates the image itself.
+    uint32_t capacity = ESP.getFreeSketchSpace();
+    if (!capacity || imageSize > capacity) {
+        errorOut = F("Firmware image is larger than the OTA app partition. Use the matching app-only firmware-app-*.bin file.");
+        return false;
     }
     return true;
 }
@@ -920,15 +935,43 @@ static void httpStatus() {
     apiSendJSON(json);
 }
 
+static void appendAudioDiagnosticsJson(String& json) {
+    uint32_t loadSnapshot = audioProcessingLoadSnapshot.load(std::memory_order_relaxed);
+    uint32_t lastCaptureMs = audioProducerLastReadMs;
+    bool loadValid = audioProducerRunning && !audioProducerStopRequested &&
+                     uint32_t(millis() - lastCaptureMs) < 2000 &&
+                     (loadSnapshot & AudioProcessingWindow::validBit);
+    json += "\"audio_cpu_valid\":" + String(loadValid ? "true" : "false") + ",";
+    json += "\"audio_cpu_pct\":" + (loadValid ? String(AudioProcessingWindow::currentX10(loadSnapshot) / 10.0f, 1) : String("null")) + ",";
+    json += "\"audio_cpu_peak_pct\":" + (loadValid ? String(AudioProcessingWindow::peakX10(loadSnapshot) / 10.0f, 1) : String("null")) + ",";
+    DmaOverrunStatus dma = getI2sDmaStatus();
+    json += "\"dma_overruns_available\":" + String(dma.available ? "true" : "false") + ",";
+    json += "\"dma_overruns_total\":" + (dma.available ? String(dma.total) : String("null")) + ",";
+    json += "\"dma_overruns_1min\":" + (dma.available ? String(dma.recent) : String("null")) + ",";
+    String dmaAge = dma.hasEvent ? formatUptime(uint32_t(millis() - dma.lastObservedMs) / 1000) + " ago" : String("never");
+    json += "\"dma_overrun_last_age\":\"" + jsonEscape(dmaAge) + "\",";
+}
+
 static void httpAudioStatus() {
     float latency_ms = (float)currentBufferSize / currentSampleRate * 1000.0f;
     String json = "{";
-    json.reserve(360);
+    json.reserve(1500);
     json += "\"sample_rate\":" + String(currentSampleRate) + ",";
     json += "\"gain\":" + String(currentGainFactor,2) + ",";
     json += "\"buffer_size\":" + String(currentBufferSize) + ",";
+#if defined(ARDUINO_XIAO_ESP32C3) || defined(ARDUINO_XIAO_ESP32C5)
+    json += "\"buffer_size_recommended\":512,";
+#else
+    json += "\"buffer_size_recommended\":0,";
+#endif
+    json += "\"audio_dsp\":\"integer\",";
     json += "\"i2s_shift\":" + String(i2sShiftBits) + ",";
     json += "\"mic_format\":" + String(micFormat) + ",";
+    json += "\"pdm_supported\":" + String(pdmMicSupported() ? "true" : "false") + ",";
+    json += "\"pdm_decoder\":\"" + String(pdmDecoderName()) + "\",";
+    json += "\"pdm_clock_hz\":" + String(micFormat == 2 ? 3072000 : 0) + ",";
+    json += "\"pdm_word_stride\":" + String(pdmRawWordStride()) + ",";
+    json += "\"pdm_bit_order\":\"" + String(pdmRawBitOrder()) + "\",";
     json += "\"latency_ms\":" + String(latency_ms,1) + ",";
     extern bool highpassEnabled; extern uint16_t highpassCutoffHz;
     json += "\"profile\":\"" + jsonEscape(profileName(currentBufferSize)) + "\",";
@@ -943,10 +986,15 @@ static void httpAudioStatus() {
     json += "\"clip\":" + String(audioClippedLastBlock?"true":"false") + ",";
     json += "\"clip_count\":" + String(audioClipCount) + ",";
     json += "\"producer_running\":" + String(audioProducerRunning?"true":"false") + ",";
+    appendAudioDiagnosticsJson(json);
+    bool capturing = audioProducerRunning && !audioProducerStopRequested;
+    json += "\"mic_signal\":\"" + String(MicrophoneSignal::name(microphoneSignal.state(millis(), capturing))) + "\",";
+    json += "\"mic_flatline_sec\":" + String(microphoneSignal.flatSeconds(millis(), capturing)) + ",";
+    json += "\"browser_listening\":" + String(browserAudioActive() ? "true" : "false") + ",";
     json += "\"i2s_error_count\":" + String(audioI2SErrorCount) + ",";
     json += "\"rb_capacity_bytes\":" + String((uint32_t)audioRingBufferCapacityBytes) + ",";
     json += "\"rb_chunks\":" + String(audioRingBufferChunkCount) + ",";
-    json += "\"rb_drops\":" + String(audioRingBufferDropCount) + ",";
+    json += "\"rb_drops\":" + String(audioRingBufferDropCount.load(std::memory_order_relaxed)) + ",";
     json += "\"rb_flushes\":" + String(audioRingBufferFlushCount) + ",";
     json += "\"rtsp_write_stalls\":" + String(rtspWriteStallCount) + ",";
     json += "\"rtsp_write_timeouts\":" + String(rtspWriteTimeoutCount) + ",";
@@ -979,9 +1027,10 @@ static void httpThermal() {
     if (overheatTripTemp > 0.0f && overheatTriggeredAt != 0) {
         since = formatSince(overheatTriggeredAt);
     }
-    bool manualRequired = overheatLatched || (!rtspServerEnabled && overheatProtectionEnabled && overheatTripTemp > 0.0f);
+    bool autoPending = thermalRecovery.autoPending(overheatAutoResumeEnabled, overheatProtectionEnabled);
+    bool manualRequired = overheatLatched && !autoPending;
     String json = "{";
-    json.reserve(520);
+    json.reserve(1050);
     if (lastTemperatureValid) {
         json += "\"current_c\":" + String(lastTemperatureC,1) + ",";
     } else {
@@ -999,6 +1048,17 @@ static void httpThermal() {
     json += "\"last_reason\":\"" + jsonEscape(overheatLastReason) + "\",";
     json += "\"last_trip_ts\":\"" + jsonEscape(overheatLastTimestamp) + "\",";
     json += "\"last_trip_since\":\"" + jsonEscape(since) + "\",";
+    json += "\"auto_resume_enabled\":" + String(overheatAutoResumeEnabled?"true":"false") + ",";
+    json += "\"auto_resume_pending\":" + String(autoPending?"true":"false") + ",";
+    json += "\"manual_blocked\":" + String(thermalRecovery.state.manualBlocked?"true":"false") + ",";
+    json += "\"emergency\":" + String(thermalRecovery.state.emergency?"true":"false") + ",";
+    json += "\"notice\":" + String(thermalRecovery.state.notice?"true":"false") + ",";
+    json += "\"auto_resumed\":" + String(thermalRecovery.state.resumed?"true":"false") + ",";
+    json += "\"trips_24h\":" + String(thermalRecovery.state.count) + ",";
+    json += "\"cool_limit_c\":" + String(overheatLatched ? thermalRecovery.state.coolLimitC : overheatShutdownC - ThermalRecovery::COOL_MARGIN_C, 1) + ",";
+    json += "\"cool_remaining_sec\":" + String(thermalRecovery.remainingSec(millis())) + ",";
+    json += "\"can_acknowledge\":" + String((thermalRecovery.state.notice && (!overheatLatched || thermalRecovery.cooled(millis())))?"true":"false") + ",";
+    json += "\"schedule_allowed\":" + String(isStreamScheduleAllowedNow(nullptr)?"true":"false") + ",";
     json += "\"manual_restart\":" + String(manualRequired?"true":"false");
     json += "}";
     apiSendJSON(json);
@@ -1007,25 +1067,16 @@ static void httpThermal() {
 static void httpThermalClear() {
     if (!requireMutationAuth()) return;
 
-    if (overheatLatched) {
-        overheatLatched = false;
-        overheatLockoutActive = false;
-        overheatConsecutiveSamples = 0;
-        overheatTripTemp = 0.0f;
-        overheatTriggeredAt = 0;
-        overheatLastReason = String("Thermal latch cleared manually.");
-        overheatLastTimestamp = String("");
-        if (!rtspServerEnabled) {
-            rtspServer.begin();
-            rtspServer.setNoDelay(true);
-            rtspServerEnabled = true;
-        }
-        saveAudioSettings();
-        webui_pushLog(F("UI action: thermal_latch_clear"));
-        apiSendJSON(F("{\"ok\":true}"));
-    } else {
-        apiSendJSON(F("{\"ok\":false}"));
+    if (!thermalRecovery.state.notice) {
+        apiSendJSON(F("{\"ok\":false,\"error\":\"no_thermal_notice\"}"));
+        return;
     }
+    if (!acknowledgeThermalShutdown()) {
+        apiSendJSON(F("{\"ok\":false,\"error\":\"cooling_required\"}"));
+        return;
+    }
+    webui_pushLog(F("UI action: thermal_acknowledge"));
+    apiSendJSON(F("{\"ok\":true}"));
 }
 
 static void httpLogs() {
@@ -1061,6 +1112,7 @@ static void httpActionServerStart(){
 static void httpActionServerStop(){
     if (!requireMutationAuth()) return;
 
+    cancelThermalResume();
     rtspServerEnabled=false; stopAllRtspClients("Web UI RTSP server disabled"); rtspServer.stop();
     webui_pushLog(F("UI action: server_stop"));
     apiSendJSON(F("{\"ok\":true}"));
@@ -1254,7 +1306,7 @@ static bool parseUInt32Strict(const String& input, uint32_t& out) {
     errno = 0;
     char* end = nullptr;
     unsigned long v = strtoul(s, &end, 10);
-    if (errno == ERANGE || end == s || *end != '\0') return false;
+    if (errno == ERANGE || end == s || *end != '\0' || v > UINT32_MAX) return false;
     out = (uint32_t)v;
     return true;
 }
@@ -1332,6 +1384,50 @@ static bool applyAndSaveMicFormat(uint8_t newFormat) {
     return false;
 }
 
+// Validate the whole group before changing runtime state or writing preferences.
+static void httpSaveSchedule() {
+    if (!requireMutationAuth()) return;
+    uint32_t start, stop;
+    String enabled = web.arg("enabled"), sleep = web.arg("sleep");
+    if ((enabled != "on" && enabled != "off") || (sleep != "on" && sleep != "off") ||
+        !parseUInt32Strict(web.arg("start"), start) || start > 1439 ||
+        !parseUInt32Strict(web.arg("stop"), stop) || stop > 1439 ||
+        (enabled == "on" && start == stop) || (sleep == "on" && enabled != "on")) {
+        apiSendJSON(F("{\"ok\":false,\"error\":\"invalid_schedule\"}"));
+        return;
+    }
+    streamScheduleStartMin = (uint16_t)start;
+    streamScheduleStopMin = (uint16_t)stop;
+    streamScheduleEnabled = enabled == "on";
+    deepSleepScheduleEnabled = sleep == "on";
+    saveAudioSettings();
+    webui_pushLog(F("UI: streaming schedule saved"));
+    apiSendJSON(F("{\"ok\":true}"));
+}
+
+static void httpSaveMqtt() {
+    if (!requireMutationAuth()) return;
+    String enabled = web.arg("enabled"), host = web.arg("host"), user = web.arg("user");
+    String password = web.arg("password"), clear = web.arg("clear_password");
+    host.trim(); user.trim();
+    uint32_t port;
+    if (!web.hasArg("host") || !web.hasArg("user") ||
+        (enabled != "on" && enabled != "off") || (enabled == "on" && !host.length()) ||
+        host.length() > 96 || user.length() > 96 || password.length() > 128 ||
+        !parseUInt32Strict(web.arg("port"), port) || port < 1 || port > 65535 ||
+        (clear != "on" && clear != "off") || (clear == "on" && password.length())) {
+        apiSendJSON(F("{\"ok\":false,\"error\":\"invalid_mqtt\"}"));
+        return;
+    }
+    mqttEnabled = enabled == "on";
+    mqttHost = host; mqttPort = (uint16_t)port; mqttUser = user;
+    if (clear == "on" || password.length()) mqttPassword = password;
+    saveAudioSettings();
+    mqttRequestReconnect(true);
+    webui_pushLog(F("UI: MQTT connection saved"));
+    apiSendJSON(F("{\"ok\":true}"));
+}
+
 static void httpSet() {
     if (!requireMutationAuth()) return;
 
@@ -1382,7 +1478,7 @@ static void httpSet() {
     else if (key == "mic_format") {
         handled = true;
         uint8_t v;
-        if (argToUChar(v) && v <= 1) {
+        if (argToUChar(v) && v <= 2) {
             applied = applyAndSaveMicFormat(v);
         }
     }
@@ -1430,22 +1526,31 @@ static void httpSet() {
     else if (key == "hp_enable") {
         handled = true;
         String v = web.arg("value");
-        if (v == "on" || v == "off") { extern bool highpassEnabled; highpassEnabled = (v == "on"); extern void updateHighpassCoeffs(); updateHighpassCoeffs(); saveAudioSettings(); applied = true; }
+        if (v == "on" || v == "off") { extern bool highpassEnabled; highpassEnabled = (v == "on"); saveAudioSettings(); applied = true; }
     }
     else if (key == "hp_cutoff") {
         handled = true;
         uint32_t v;
-        if (argToUInt(v) && v >= 10 && v <= maxHighpassCutoffForRate(currentSampleRate)) { extern uint16_t highpassCutoffHz; highpassCutoffHz = (uint16_t)v; extern void updateHighpassCoeffs(); updateHighpassCoeffs(); saveAudioSettings(); applied = true; }
+        if (argToUInt(v) && v >= 10 && v <= maxHighpassCutoffForRate(currentSampleRate)) { extern uint16_t highpassCutoffHz; highpassCutoffHz = (uint16_t)v; saveAudioSettings(); applied = true; }
     }
     else if (key == "oh_enable") {
         handled = true;
         String v = web.arg("value");
-        if (v == "on" || v == "off") { overheatProtectionEnabled = (v == "on"); overheatConsecutiveSamples = 0; if (!overheatProtectionEnabled) { overheatLockoutActive = false; } saveAudioSettings(); applied = true; }
+        if (v == "on" || v == "off") { overheatProtectionEnabled = (v == "on"); overheatConsecutiveSamples = 0; thermalRecovery.resetCooling(); if (!overheatProtectionEnabled) { overheatLockoutActive = false; } saveAudioSettings(); applied = true; }
+    }
+    else if (key == "oh_auto") {
+        handled = true;
+        String v = web.arg("value");
+        if (v == "on" || v == "off") {
+            overheatAutoResumeEnabled = (v == "on");
+            thermalRecovery.resetCooling();
+            saveAudioSettings(); applied = true;
+        }
     }
     else if (key == "oh_limit") {
         handled = true;
         uint32_t v;
-        if (argToUInt(v) && v >= OH_MIN && v <= OH_MAX) { uint32_t snapped = OH_MIN + ((v - OH_MIN) / OH_STEP) * OH_STEP; overheatShutdownC = (float)snapped; overheatLockoutActive = false; overheatConsecutiveSamples = 0; saveAudioSettings(); applied = true; }
+        if (argToUInt(v) && v >= OH_MIN && v <= OH_MAX) { uint32_t snapped = OH_MIN + ((v - OH_MIN) / OH_STEP) * OH_STEP; overheatShutdownC = (float)snapped; if (overheatLatched) { thermalRecovery.state.coolLimitC = std::min(thermalRecovery.state.coolLimitC, overheatShutdownC - ThermalRecovery::COOL_MARGIN_C); } thermalRecovery.resetCooling(); overheatLockoutActive = overheatLatched; overheatConsecutiveSamples = 0; saveAudioSettings(); applied = true; }
     }
     else if (key == "time_offset") {
         handled = true;
@@ -1687,6 +1792,8 @@ static void httpActionFactoryReset(){
 void webui_begin() {
     web.on("/", httpIndex);
     web.on("/ota", HTTP_GET, httpOtaPage);
+    web.on("/ota.css", HTTP_GET, httpOtaCss);
+    web.on("/ota.js", HTTP_GET, httpOtaJs);
     web.on("/ota/install", HTTP_POST, httpOtaInstall);
     web.on("/ota/upload", HTTP_POST, httpOtaUploadDone, httpOtaUploadChunk);
     web.on("/api/ota_status", HTTP_GET, httpOtaStatus);
@@ -1710,6 +1817,8 @@ void webui_begin() {
     web.on("/api/action/reboot", HTTP_POST, httpActionReboot);
     web.on("/api/action/factory_reset", HTTP_POST, httpActionFactoryReset);
     web.on("/api/set", HTTP_POST, httpSet);
+    web.on("/api/settings/schedule", HTTP_POST, httpSaveSchedule);
+    web.on("/api/settings/mqtt", HTTP_POST, httpSaveMqtt);
     static const char* headerKeys[] = { UI_MUTATION_HEADER };
     web.collectHeaders(headerKeys, 1);
     web.begin();
