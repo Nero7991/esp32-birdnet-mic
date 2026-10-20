@@ -7,8 +7,9 @@ const ids = ['sel_oh_auto', 'therm_trip_count', 'thermal_notice', 'thermal_notic
   'thermal_notice_detail', 'row_therm_latch', 'txt_therm_latch', 'therm_status',
   'btn_therm_clear', 'btn_thermal_notice_ack', 'b_srv_on', 'b_srv_off'];
 const nodes = Object.fromEntries(ids.map(id => [id, {style: {}, classList: {toggle() {}}}]));
-const context = vm.createContext({$: id => nodes[id] || null, Date, locks: {}, edits: {},
+const context = vm.createContext({$: id => nodes[id] || null, Date, locks: {}, edits: {}, confirmedValues: {}, dirtyEls: {oh_auto:[nodes.sel_oh_auto]}, savingKeys: new Set(), pendingSyncKeys: new Set(),
   toggleDirty() {}, thermalAutoPending: false});
+vm.runInContext(html.slice(html.indexOf('function fieldValue('),html.indexOf('function trackEdit('))+html.slice(html.indexOf('function clearDirty('),html.indexOf('function toggleDirty(')),context);
 function loadFunction(name, next) {
   const start = html.indexOf('function ' + name + '(');
   const end = html.indexOf('function ' + next + '(', start);

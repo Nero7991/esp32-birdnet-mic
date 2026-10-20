@@ -24,6 +24,7 @@
 #include "freertos/task.h"
 #include "freertos/ringbuf.h"
 #include "WebUI.h"
+#include "MicrophoneProfiles.h"
 #include "TimeZoneSchedule.h"
 #include "DiscoveryProgress.h"
 #include "MqttDiscovery.h"
@@ -68,7 +69,7 @@ static constexpr uint32_t PDM_SAMPLE_RATE = 48000;
 static constexpr uint32_t PDM_CLOCK_HZ = PDM_SAMPLE_RATE * 64;
 
 // ================== SETTINGS (ESP32 RTSP Mic for BirdNET-Go / BirdNET-Pi) ==================
-#define FW_VERSION "1.30"
+#define FW_VERSION "1.31"
 // Expose FW version as a global C string for WebUI/API
 const char* FW_VERSION_STR = FW_VERSION;
 // Build timestamp for diagnostics (compile time)
@@ -256,6 +257,34 @@ struct ClientSession {
         packetsSent = 0;
     }
 };
+
+bool getRecommendedMicSettings(uint8_t format, micprofiles::Settings& out) {
+#if defined(ARDUINO_XIAO_ESP32C3)
+    constexpr auto board = micprofiles::C3;
+#elif defined(ARDUINO_XIAO_ESP32S3)
+    constexpr auto board = micprofiles::S3;
+#elif defined(ARDUINO_XIAO_ESP32C5)
+    constexpr auto board = micprofiles::C5;
+#elif defined(ARDUINO_XIAO_ESP32C6)
+    constexpr auto board = micprofiles::C6;
+#else
+    constexpr auto board = micprofiles::Unknown;
+#endif
+    return micprofiles::recommended(board, format, out);
+}
+
+uint16_t maxSupportedCpuFrequencyMhz() {
+#if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32C5)
+    return 240;
+#else
+    return 160;
+#endif
+}
+
+bool cpuFrequencySupported(uint32_t mhz) {
+    return mhz == 40 || mhz == 80 || mhz == 160 ||
+        (mhz == 240 && maxSupportedCpuFrequencyMhz() >= 240);
+}
 
 static const char* micFormatName(uint8_t format) {
     if (format == MIC_FORMAT_PDM) return "PDM";
@@ -2125,7 +2154,7 @@ void loadAudioSettings() {
         performanceCheckInterval = 15;
         settingsRepaired = true;
     }
-    if (cpuFrequencyMhz != 40U && cpuFrequencyMhz != 80U && cpuFrequencyMhz != 160U) {
+    if (!cpuFrequencySupported(cpuFrequencyMhz)) {
         cpuFrequencyMhz = 160;
         settingsRepaired = true;
     }
@@ -2432,6 +2461,46 @@ bool applyMicFormatConfig(uint8_t newFormat) {
     highpassCutoffHz = oldCutoff;
     minAcceptableRate = oldMinRate;
     if (!restartI2S()) simplePrintln("Mic format rollback failed; reboot recommended.");
+    return false;
+}
+
+// Apply microphone and its optional profile as one capture transaction.
+// The legacy API continues to preserve custom values through applyMicFormatConfig.
+bool applyMicProfileConfig(uint8_t newFormat, bool recommended) {
+    if (!recommended) return applyMicFormatConfig(newFormat);
+    micprofiles::Settings next;
+    if (!getRecommendedMicSettings(newFormat, next) ||
+        (newFormat == MIC_FORMAT_PDM && !pdmMicSupported())) return false;
+    const uint8_t oldFormat = micFormat, oldCpu = cpuFrequencyMhz;
+    const micprofiles::Settings old = {currentSampleRate, currentGainFactor, currentBufferSize,
+        i2sShiftBits, highpassEnabled, highpassCutoffHz, cpuFrequencyMhz};
+    const uint32_t oldMinRate = minAcceptableRate;
+    stopAudioProducer();
+    micFormat = newFormat;
+    currentSampleRate = next.rate;
+    currentGainFactor = next.gain;
+    currentBufferSize = next.buffer;
+    if (newFormat != MIC_FORMAT_PDM) i2sShiftBits = next.shift;
+    highpassEnabled = next.highpass;
+    highpassCutoffHz = next.cutoff;
+    if (autoThresholdEnabled) minAcceptableRate = computeRecommendedMinRate();
+    const uint8_t nextCpu = next.cpu ? next.cpu : oldCpu;
+    const bool clockOk = nextCpu == oldCpu || setCpuFrequencyMhz(nextCpu);
+    if (clockOk) cpuFrequencyMhz = nextCpu;
+    if (clockOk && restartI2S()) return true;
+
+    micFormat = oldFormat;
+    currentSampleRate = old.rate;
+    currentGainFactor = old.gain;
+    currentBufferSize = old.buffer;
+    i2sShiftBits = old.shift;
+    highpassEnabled = old.highpass;
+    highpassCutoffHz = old.cutoff;
+    minAcceptableRate = oldMinRate;
+    if (cpuFrequencyMhz != oldCpu && !setCpuFrequencyMhz(oldCpu))
+        simplePrintln("Microphone profile CPU rollback failed.");
+    cpuFrequencyMhz = oldCpu;
+    if (!restartI2S()) simplePrintln("Microphone profile rollback failed; reboot recommended.");
     return false;
 }
 
@@ -2769,9 +2838,23 @@ bool startAudioProducer() {
 
     const size_t requested = computeAudioRingBufferCapacity();
     const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    const size_t heapFree = heap_caps_get_free_size(caps);
+    const size_t heapLargest = heap_caps_get_largest_free_block(caps);
+    const size_t chunkBytes = size_t(currentBufferSize) * sizeof(int16_t);
     audioRingBufferCapacityBytes = audioreserve::fit(requested,
-        size_t(currentBufferSize) * sizeof(int16_t), heap_caps_get_free_size(caps),
-        heap_caps_get_largest_free_block(caps));
+        chunkBytes, heapFree, heapLargest);
+#if defined(CONFIG_IDF_TARGET_ESP32C5)
+    if (!audioRingBufferCapacityBytes) {
+        audioRingBufferCapacityBytes = audioreserve::fit(
+            audioreserve::minimumCapacity(requested, chunkBytes), chunkBytes,
+            heapFree, heapLargest, audioreserve::kC5MinimumHeapMargin);
+        if (audioRingBufferCapacityBytes) {
+            simplePrintln("Audio reserve: low RAM, using minimum reserve with 64 KiB Wi-Fi headroom.");
+        }
+    }
+#endif
+    simplePrintln("Audio reserve check: free " + String((uint32_t)heapFree) +
+                  " bytes; largest block " + String((uint32_t)heapLargest));
     if (!audioRingBufferCapacityBytes) {
         simplePrintln("Audio reserve: insufficient RAM for Wi-Fi and capture.");
         return false;

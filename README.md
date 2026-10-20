@@ -8,8 +8,17 @@ Turn a **Seeed Studio XIAO ESP32** and a digital microphone into a Wi-Fi microph
 for **BirdNET-Go**, **BirdNET-Pi**, VLC or ffmpeg. Listen in your browser, adjust settings
 and check device health without installing an app.
 
-**Latest firmware: v1.30** · [Latest published release](https://github.com/Sukecz/esp32-birdnet-mic/releases/latest)
+**Latest firmware: v1.31** · [Latest published release](https://github.com/Sukecz/esp32-birdnet-mic/releases/latest)
 · [Web flasher](https://esp32mic.msmeteo.cz) · [Changelog](esp32-birdnet-mic/CHANGELOG.md)
+
+## What's new in 1.31
+
+- Review recommended microphone settings for your board before applying, or keep your saved values.
+- Unsaved indicators clear when an edit returns to its saved value.
+- Optional 240 MHz CPU setting on S3/C5.
+- Fix C5 audio startup/reconfiguration when internal RAM is limited, for both I2S and PDM.
+- Free 12 KiB of C5 RAM by sizing the browser-listening queue to 4 KiB.
+- Document PDM gain settings when upgrading from the contributor's v15 firmware.
 
 ## What's new in 1.30
 
@@ -31,7 +40,7 @@ Normal OTA updates keep the existing partition layout and saved settings. No USB
 | Feature | Status | Details |
 |---|---|---|
 | I2S microphones | 🟢 Supported | ICS-43434, SPH0645LM4H and INMP441; see microphone table |
-| PDM / IM73D122 | 🟡 Experimental | 48 kHz mono; physical validation of this integrated firmware is pending |
+| PDM microphones | 🟡 Experimental | 48 kHz mono; physical validation of this integrated firmware is pending |
 | PCM1808 external ADC | 🟡 Experimental | Audio remained noisy in testing; not recommended for a new build |
 | BirdNET-Go / BirdNET-Pi | 🟢 Supported | RTSP over TCP / UDP respectively |
 | Browser listening | 🟢 Supported | One browser listener, separate from RTSP client slots |
@@ -50,19 +59,72 @@ ICS-43434**; a successful build does not establish long-term hardware stability 
 
 ![Web UI with browser listening, device status and collapsible settings](assets/webui2.png)
 
-*Screenshot from development firmware v1.27; the same interface is included in v1.30.*
+*Base interface shown; v1.31 also adds a microphone-settings recommendation dialog.*
+
+<a id="parts-list"></a>
+
+## Recommended hardware
+
+Choose **one ESP32 board and one microphone**, then add the accessories below.
+
+### ESP32 boards
+
+| Board | Recommendation | Link |
+|---|---|---|
+| **XIAO ESP32-S3** | ⭐ **Recommended** for new builds; hardware PDM conversion | [Seeed Studio](https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html) |
+| XIAO ESP32-C6 | Maintainer's reference board; software PDM conversion | [Seeed Studio](https://www.seeedstudio.com/Seeed-Studio-XIAO-ESP32C6-p-5884.html) |
+| XIAO ESP32-C3 | Supported; use 512-sample packets and 160 MHz for PDM | [Seeed Studio](https://www.seeedstudio.com/Seeed-XIAO-ESP32C3-p-5431.html) |
+| XIAO ESP32-C5 | Supported; use 512-sample packets and 160 MHz for PDM | [Seeed Studio](https://www.seeedstudio.com/Seeed-Studio-XIAO-ESP32C5-p-6609.html) |
+
+### Microphones
+
+| Choice | Microphone | Interface | Notes / link |
+|---|---|---|---|
+| ⭐ **Recommended** | **Adafruit SPH0645LM4H** | I2S | Contributor-tested; select **MSB / left-justified**. [Adafruit #3421](https://www.adafruit.com/product/3421) |
+| 🏆 **Best quality** | **Infineon IM73D122 breakout** | PDM · 🟡 Experimental | Low-noise option with **73 dB(A) SNR**; integrated hardware validation is pending. [Example module](https://www.aliexpress.com/item/1005010674767599.html) |
+| Alternative PDM | **Adafruit PDM MEMS Microphone Breakout** / **MP34DT01-M** | PDM · 🟡 Experimental | Contributor-reported compatible; **61 dB SNR**. [Adafruit #3492](https://www.adafruit.com/product/3492) |
+| Alternative PDM | **MP34DT01 PDM MEMS modules** | PDM · 🟡 Experimental | Generic breakouts are contributor-reported compatible; check the exact chip, supply and pinout. Search by **MP34DT01**. |
+| Existing builds | **ICS-43434** | I2S | Maintainer-tested reference; select **Philips I2S**. [TDK product status](https://product.tdk.com/en/search/sw_piezo/mic/mems-mic/info?part_no=ICS-43434) |
+| Existing builds | **INMP441** | I2S | [User-reported compatible](https://github.com/Sukecz/esp32-birdnet-mic/discussions/25); select **Philips I2S**. [TDK product status](https://product.tdk.com/en/search/sw_piezo/mic/mems-mic/info?part_no=INMP441) |
+
+**Best quality** identifies the IM73D122's lower specified microphone noise: its
+[73 dB(A) SNR](https://www.infineon.com/product-table/mems-microphones) compares with
+[65 dB(A) for SPH0645LM4H](https://cdn-shop.adafruit.com/product-files/3421/i2S%20Datasheet.PDF).
+These are component specifications; final audio also depends on the breakout, wiring,
+placement and PDM conversion. PDM support remains experimental.
+
+Adafruit #3492 uses the [MP34DT01-M](https://learn.adafruit.com/adafruit-pdm-microphone-breakout/downloads);
+**it is a different microphone from IM73D122**. Both use the existing **PDM microphone (IM73D122)**
+selection in the Web UI. Similar PDM modules may work if they accept **3.3 V**, a **3.072 MHz clock**
+and left-slot output, but other models are not automatically validated. Check their datasheet and
+breakout pin labels. See [microphones and wiring](#microphones-and-wiring).
+
+### Accessories
+
+| Accessory | Needed | Notes / link |
+|---|---|---|
+| **USB-C data cable** | Initial setup | Required for USB flashing; a charge-only cable will not work |
+| **5 V USB power supply** | Continuous operation | At least 1 A recommended; USB-C is the simplest power connection |
+| **2.4 GHz antenna, IPEX/U.FL** | Recommended | Use the antenna appropriate for your board. [Example](https://www.aliexpress.com/item/1005005439361093.html) |
+| Short microphone wires / shielded cable | Wiring | I2S needs 5 conductors; PDM needs 4 when SEL is tied to GND at the mic. Keep wires short. [Example cable](https://www.aliexpress.com/item/1005010375728700.html) |
+| Regulated **5 V** supply for 5V/VBUS input | Optional alternative | [Example](https://www.aliexpress.com/item/1005002624537795.html) — select **5 V**; the listing may default to **12 V**, which must never be connected to the XIAO |
+
+Links are examples. Verify the exact part and breakout supply rating before buying.
+Power the XIAO through USB-C or its 5V/VBUS input; do not connect both power sources at once.
+A higher-wattage USB supply is fine because the board draws only the current it needs.
+Power the microphone from **3V3**, following its breakout specification.
 
 ## Quick start
 
-1. Choose a board and microphone from the [parts list](#parts-list), then wire it with power disconnected.
+1. Choose a board and microphone from the [recommended hardware](#recommended-hardware), then wire it with power disconnected.
 2. Connect the XIAO by **USB-C data cable**. Open the [web flasher](https://esp32mic.msmeteo.cz)
    in desktop Chrome or Edge, click **Flash**, and select the device. Chip detection selects the image;
    the supplied firmware is intended for XIAO boards.
 3. Join **ESP32-RTSP-Mic-AP**. Open `http://192.168.4.1` if the setup page does not appear,
    then save your Wi-Fi details.
 4. Open `http://<device-ip>/` using the address shown in your router's device list.
-5. In **Audio → Microphone format**, select your microphone and apply. Leave other audio
-   settings at their defaults initially; follow the extra PDM steps below if applicable.
+5. In **Audio → Microphone format**, select your microphone and apply. Review the recommended
+   settings and save, or keep your saved values. Follow the PDM steps below if applicable.
 6. Press **Listen** to check the sound. In **Streams**, enable a stream, choose BirdNET-Go or
    BirdNET-Pi, and copy its URL into that system. Stream 1 is enabled by default; Stream 2 is optional.
 
@@ -106,52 +168,35 @@ for advanced setups. Use **3.3 V**, not 5 V, for the microphone.
 
 ### PDM microphone — 🟡 Experimental
 
-The [IM73D122 module](https://www.aliexpress.com/item/1005010674767599.html) uses **different wiring**:
+IM73D122, Adafruit PDM (#3492 / MP34DT01-M) and compatible MP34DT01 breakouts use
+**different wiring from I2S**. Use the PDM selection for all of them; the Web UI label
+currently names IM73D122. Check each breakout's pin labels:
 
 | PDM microphone pin | XIAO pin |
 |---|---|
-| VDD | 3V3 (check the breakout's supply rating) |
+| VDD / VCC / 3V | 3V3 (check the breakout's supply rating) |
 | GND | GND |
 | CLK | D3 |
-| DATA | D2 |
+| DATA / DAT | D2 |
 | SEL / L-R | GND (left slot) |
 
 Leave **D1 and D7 disconnected**. Check the module's pin labels before connecting power.
 Select **PDM microphone (IM73D122)** in Audio; this sets **48 kHz** automatically.
-Gain and high-pass filtering remain available; I2S Shift does not apply.
+Gain and high-pass filtering remain available; I2S Shift does not apply. Use **Recommended settings** to review the board/microphone profile before saving, or choose **Keep saved values and save** to retain your tuning.
+
+When upgrading from the contributor's v15 PDM firmware, start with
+**new Gain = old Gain × 2^(16 − old I2S Shift)**, then check the level/clipping.
+For example, Shift 12 / Gain 1.5 becomes Gain 24. Saved Gain is not changed automatically.
 
 **On C3/C5, set Audio → Advanced audio settings → RTP packet size to 512 samples,
 and use 160 MHz CPU in Thermal management.** The default packet size is already 512, but
-selecting PDM preserves a previously saved larger size. The firmware reduces its internal audio
+choosing **Keep saved values and save** preserves a previously saved larger size. The firmware reduces its internal audio
 reserve when RAM is limited; this does not automatically change the packet-size setting.
 
-S3 uses hardware PDM conversion; C3/C5/C6 use software conversion. Dan Logue reports hardware
-tests with his contributing firmware. Physical microphone and long-running tests of this integrated
+S3 uses hardware PDM conversion; C3/C5/C6 use software conversion. Contributor hardware
+tests used the contributing firmware. Physical microphone and long-running tests of this integrated
 release are still pending, so PDM remains experimental on all four boards.
 [Detailed PDM notes](esp32-birdnet-mic/README.md#pdm-microphones-experimental).
-
-## Parts list
-
-| Part | Qty | Notes | Link |
-|---|---:|---|---|
-| Seeed Studio XIAO ESP32-C3 | 1 | Supported XIAO target board | [Seeed Studio](https://www.seeedstudio.com/Seeed-XIAO-ESP32C3-p-5431.html) |
-| Seeed Studio XIAO ESP32-S3 | 1 | **Recommended for new builds** | [Seeed Studio](https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html) |
-| Seeed Studio XIAO ESP32-C5 | 1 | Supported XIAO target board | [Seeed Studio](https://www.seeedstudio.com/Seeed-Studio-XIAO-ESP32C5-p-6609.html) |
-| Seeed Studio XIAO ESP32-C6 | 1 | Supported XIAO target board | [Seeed Studio](https://www.seeedstudio.com/Seeed-Studio-XIAO-ESP32C6-p-5884.html) |
-| MEMS I2S microphone **Adafruit SPH0645LM4H** | 1 | **Recommended for new builds**; select MSB / left-justified in the Web UI | [Adafruit](https://www.adafruit.com/product/3421) |
-| MEMS I2S microphone **ICS-43434** | 1 | Maintainer-tested I2S reference | [TDK product status](https://product.tdk.com/en/search/sw_piezo/mic/mems-mic/info?part_no=ICS-43434) |
-| MEMS I2S microphone **INMP441** | 1 | User-reported compatible with Philips I2S mode | [TDK product status](https://product.tdk.com/en/search/sw_piezo/mic/mems-mic/info?part_no=INMP441) |
-| PDM microphone **IM73D122 breakout** | 1 alternative | 🟡 Experimental; different wiring from I2S, see below | [AliExpress](https://www.aliexpress.com/item/1005010674767599.html) |
-| Shielded cable, 5+ core | Optional | I2S mic needs 5 conductors: 3V3, GND, BCLK, LRCLK/WS, and SD/DOUT. A 6-core cable is a good practical choice for spare/shield handling. | [AliExpress](https://www.aliexpress.com/item/1005010375728700.html) |
-| 5 V power supply | 1 | At least 1 A recommended. **The AliExpress page may default to 12 V; manually select the 5 V version. Never connect 12 V to the XIAO.** | [AliExpress](https://www.aliexpress.com/item/1005002624537795.html) |
-| 2.4 GHz antenna, IPEX/U.FL | Recommended | Important for stable XIAO Wi-Fi streaming | [AliExpress](https://www.aliexpress.com/item/1005005439361093.html) |
-
-Choose **one board and one microphone**, plus a USB-C data cable for initial setup.
-Links are examples only. Verify the exact part number before buying.
-
-Power the XIAO either through USB-C with a normal USB power supply or through its 5V/VBUS input
-with a regulated 5 V supply. A higher-wattage USB-C supply is fine because the board draws only the
-current it needs. Do not connect USB-C and an external 5 V source at the same time.
 
 ## Everyday use and troubleshooting
 

@@ -1,6 +1,6 @@
 # Manual OTA firmware
 
-This folder contains the **v1.30** app-only firmware files for manual OTA update through the device
+This folder contains the **v1.31** app-only firmware files for manual OTA update through the device
 Web UI.
 
 Open the device update page:
@@ -23,6 +23,6 @@ firmware-app-c6.bin    XIAO ESP32-C6
 Upload only the file for your board. Do not use merged `firmware-<board>.bin` images for OTA.
 Saved settings and the partition layout are retained during a normal update.
 
-PDM / IM73D122 support is **🟡 Experimental**. On C3/C5 use 512 samples per packet and 160 MHz;
-selecting PDM does not replace a previously saved packet size.
+PDM (IM73D122 / Adafruit PDM / MP34DT01) support is **🟡 Experimental**. On C3/C5 use 512 samples per packet and 160 MHz;
+keeping saved values preserves the packet size; **Recommended settings** applies 512.
 See the [wiring and setup guide](../esp32-birdnet-mic/README.md#pdm-microphones-experimental).

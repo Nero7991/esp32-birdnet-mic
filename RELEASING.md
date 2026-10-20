@@ -1,14 +1,13 @@
 # Release validation
 
-Firmware 1.26 was validated locally on the configured XIAO ESP32-C6 using OTA,
-RTSP reception, concurrent-client checks, MQTT, the Web UI and extended observation.
-C3/S3/C5 validation covers builds and shared host-side regression tests; those boards
-have not been physically tested by the maintainer.
+Firmware **1.31** includes all four XIAO board images. Maintainer hardware validation
+primarily covers C6 with an I2S microphone; physical PDM validation and long-running
+C5 PDM testing of the integrated image remain pending.
 
 ## Release notes
 
-The current community-facing release notes are in
-[release-notes/1.26.md](release-notes/1.26.md).
+See the [current changelog](esp32-birdnet-mic/CHANGELOG.md#131---2026-10-20).
+Previous release records are retained in `release-notes/`.
 
 ## Build and local checks
 
@@ -20,7 +19,8 @@ Dependency upgrades are explicit changes to that file and require all four board
 python3 tools/check_build_dependencies.py
 python3 -m unittest discover -s tests -p 'test_*.py'
 node tests/webui_health_test.js
-NODE_PATH=/tmp/birdnetmic-ui-check/node_modules node tests/wifi_ap_ui_test.js
+node tests/thermal_recovery_ui_test.js
+# Browser tests additionally require playwright-core and Chromium.
 g++ -std=c++11 -Wall -Wextra -Werror tests/discovery_progress_test.cpp -o /tmp/discovery-test
 /tmp/discovery-test
 g++ -std=c++11 -Wall -Wextra -Werror -Itests/stubs tests/discovery_client_test.cpp -o /tmp/discovery-client-test
@@ -50,7 +50,7 @@ retrying; uploads and deployments are not rolled back automatically.
 The read-only acceptance check can also be rerun independently:
 
 ```sh
-python3 tools/verify_published_release.py 1.26
+python3 tools/verify_published_release.py 1.31
 ```
 
 The check downloads public artifacts over the actual HTTP OTA route and compares all

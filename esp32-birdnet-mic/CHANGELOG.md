@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.31 - 2026-10-20
+
+### Highlights
+
+- **Recommended microphone settings:** review board-specific values before saving, keep saved settings or cancel. Apply a profile later with **Recommended settings**.
+- **Clearer save feedback:** Unsaved indicators clear when values return to their saved state, including equivalent numeric input such as 1.50 and 1.5. Newer edits survive status polling and pending/failed saves.
+- **C5 audio startup fix:** reduce the browser-listening queue from 16 KiB to 4 KiB, freeing 12 KiB for capture and Wi-Fi/TCP. A bounded fallback allows the minimum capture reserve with 64 KiB Wi-Fi headroom when the normal 80 KiB allowance cannot fit. Applies to I2S and PDM startup/reconfiguration.
+- **Optional 240 MHz CPU setting on S3/C5**, with board-aware save/boot validation. C3/C6 remain limited to 160 MHz; defaults remain 160 MHz.
+- **Clearer hardware guide:** separate ESP32 boards, microphones and accessories; recommend SPH0645LM4H for I2S and identify IM73D122 as **Best quality** by its specified microphone SNR. Add contributor-reported Adafruit PDM / MP34DT01 alternatives and their wiring labels. PDM remains experimental.
+- Remove the unused old Web UI screenshot and superseded versioned firmware copies from the current tree. Current board images and legacy OTA recovery routes are retained.
+
+### Audio settings
+
+- Apply microphone and recommended values in one capture restart; restore audio/CPU settings on failure and save only on success. Recommendations are optional and never replace settings automatically on update or boot.
+- PDM recommendations start at 48 kHz, Gain 24, 512-sample packets and 160 MHz for software conversion. Check actual levels and clipping for the microphone and location. I2S Shift is unused in PDM mode.
+- When upgrading from the contributor's v15 PDM firmware, start with **new Gain = old Gain × 2^(16 − old Shift)**. Example: Shift 12 / Gain 1.5 becomes Gain 24. Existing Gain settings are preserved.
+- Slow browser listeners disconnect without blocking RTSP. Other boards retain the 16 KiB browser queue. Memory checks retain producer-stack, allocation-overhead and contiguous-block requirements.
+
+### Validation
+
+All four board builds, 48 regression tests and source/embedded browser checks pass. Final C6 I2S OTA retained all 32 checked settings and served the exact packaged UI. Concurrent 48 kHz browser audio and a 15-second RTSP/TCP reception passed without new capture, DMA, buffer or write errors. Physical PDM validation and long-running C5 PDM testing of this integrated firmware remain pending.
+
 ## 1.30 - 2026-10-19
 
 ### Highlights

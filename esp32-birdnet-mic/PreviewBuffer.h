@@ -1,4 +1,9 @@
 #pragma once
+#if defined(__has_include)
+#if __has_include(<sdkconfig.h>)
+#include <sdkconfig.h>
+#endif
+#endif
 #include <atomic>
 #include <stdint.h>
 #include <stddef.h>
@@ -8,7 +13,13 @@
 // calls. A slow preview is disconnected instead of applying backpressure to RTSP.
 class PreviewBuffer {
 public:
+#if defined(CONFIG_IDF_TARGET_ESP32C5)
+    // Free 12 KiB of internal RAM for capture and Wi-Fi/TCP on C5.
+    // At 48 kHz mono int16 this holds about 43 ms for one browser listener.
+    static constexpr size_t capacity = 4096;
+#else
     static constexpr size_t capacity = 16384;
+#endif
     bool begin() {
         // Only the consumer discards backlog. Monotonic offsets are never reset
         // while capture could still be publishing a block from the last session.

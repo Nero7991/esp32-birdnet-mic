@@ -7,6 +7,11 @@
 static std::atomic<uint32_t> outstanding{0};
 
 int main() {
+#if defined(CONFIG_IDF_TARGET_ESP32C5)
+    static_assert(PreviewBuffer::capacity == 4096, "C5 must free 12 KiB for Wi-Fi/capture");
+#else
+    static_assert(PreviewBuffer::capacity == 16384, "Other boards keep the full preview queue");
+#endif
     MicrophoneSignal health;
     assert(health.state(0) == MicrophoneSignal::Unavailable);
     health.observe(0, 0, 0);

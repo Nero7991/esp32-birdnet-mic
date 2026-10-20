@@ -5,7 +5,10 @@
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <meta name='color-scheme' content='light dark'>
 <title>ESP32 RTSP Mic for BirdNET-Go / BirdNET-Pi</title>
-<style>:root{color-scheme:light dark;--bg:#f6f7fb;--bg2:#eef2f8;--fg:#0f172a;--muted:#526079;--card:rgba(255,255,255,.88);--card2:rgba(255,255,255,.72);--border:rgba(15,23,42,.12);--acc:#0ea5e9;--acc2:#10b981;--warn:#f59e0b;--bad:#ef4444;--shadow:0 14px 34px rgba(15,23,42,.10);--shadow2:0 8px 18px rgba(15,23,42,.08);--row:rgba(15,23,42,.03);--row2:rgba(15,23,42,.05);--field:rgba(255,255,255,.70)}@media (prefers-color-scheme:dark){:root{--bg:#070a14;--bg2:#0b1632;--fg:#e8eefc;--muted:#a7b3cb;--card:rgba(15,23,42,.70);--card2:rgba(15,23,42,.55);--border:rgba(226,232,240,.14);--shadow:0 18px 44px rgba(0,0,0,.55);--shadow2:0 10px 22px rgba(0,0,0,.40);--row:rgba(255,255,255,.04);--row2:rgba(255,255,255,.06);--field:rgba(255,255,255,.04)}}:root[data-theme='light']{color-scheme:light;--bg:#f6f7fb;--bg2:#eef2f8;--fg:#0f172a;--muted:#526079;--card:rgba(255,255,255,.88);--card2:rgba(255,255,255,.72);--border:rgba(15,23,42,.12);--shadow:0 14px 34px rgba(15,23,42,.10);--shadow2:0 8px 18px rgba(15,23,42,.08);--row:rgba(15,23,42,.03);--row2:rgba(15,23,42,.05);--field:rgba(255,255,255,.70)}:root[data-theme='dark']{color-scheme:dark;--bg:#070a14;--bg2:#0b1632;--fg:#e8eefc;--muted:#a7b3cb;--card:rgba(15,23,42,.70);--card2:rgba(15,23,42,.55);--border:rgba(226,232,240,.14);--shadow:0 18px 44px rgba(0,0,0,.55);--shadow2:0 10px 22px rgba(0,0,0,.40);--row:rgba(255,255,255,.04);--row2:rgba(255,255,255,.06);--field:rgba(255,255,255,.04)}*{box-sizing:border-box}body{font-family:ui-rounded,"SF Pro Rounded","Segoe UI Variable","Segoe UI",system-ui,-apple-system,sans-serif;margin:0;color:var(--fg);background:radial-gradient(1100px 700px at 12% -10%,rgba(14,165,233,.18),transparent 60%),radial-gradient(900px 700px at 90% -20%,rgba(16,185,129,.16),transparent 55%),linear-gradient(180deg,var(--bg),var(--bg2));min-height:100vh}a{color:inherit}.page{max-width:1000px;margin:0 auto;padding:18px 16px 24px}.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:14px;margin:0;box-shadow:var(--shadow2);backdrop-filter:blur(10px)}.page>.card{margin-bottom:14px}.top{position:static}.hero{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin:0;flex-wrap:wrap}.hero>div:first-child{min-width:0;flex:1 1 300px}.brand{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap}.title{font-weight:850;font-size:18px;line-height:1.3}.badge{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--row);color:var(--muted);padding:4px 10px;border-radius:999px;font-size:12px}details.card>summary.sum{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0;margin:0;border:0}details.card>summary.sum::-webkit-details-marker{display:none}.chev{width:26px;height:26px;border-radius:999px;border:1px solid var(--border);display:inline-flex;align-items:center;justify-content:center;color:var(--muted);background:var(--row);font-weight:900;line-height:1}.chev:before{content:'+'}details[open]>summary.sum .chev:before{content:'−'}summary.sum:hover .chev{border-color:rgba(14,165,233,.55);background:var(--row2)}table{width:100%;border-collapse:separate;border-spacing:0 8px}td{padding:10px 10px;background:var(--row);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}tr td:first-child{border-left:1px solid var(--border);border-top-left-radius:12px;border-bottom-left-radius:12px}tr td:last-child{border-right:1px solid var(--border);border-top-right-radius:12px;border-bottom-right-radius:12px}td.k{color:var(--muted);width:44%;font-size:12.5px}td.v{font-weight:750;font-size:13px}button,select,input{font:inherit;padding:9px 11px;border-radius:12px;border:1px solid var(--border);background:var(--field);color:var(--fg)}option{background:#fff;color:#0f172a}button{background:var(--row);cursor:pointer;font-weight:800}button:hover{border-color:rgba(14,165,233,.55);background:var(--row2)}button:disabled{opacity:.55;cursor:not-allowed}button.active{background:rgba(14,165,233,.18);border-color:rgba(14,165,233,.55);color:var(--fg)}button.danger{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.35)}button.danger:hover{border-color:rgba(239,68,68,.55);background:rgba(239,68,68,.16)}button:focus-visible,select:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid rgba(14,165,233,.35);outline-offset:2px}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}#adv{font-size:12.5px;color:var(--muted);line-height:1.4}.ok{color:var(--acc2)} .warn{color:var(--warn)} .bad{color:var(--bad)}span.ok,span.warn,span.bad{display:inline-flex;align-items:center;padding:2px 10px;border-radius:999px;border:1px solid var(--border);background:var(--row);font-size:12px;font-weight:800}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}td.v .mono{overflow-wrap:anywhere;word-break:break-word}input[type=number]{width:130px} select{min-width:110px} .muted{color:var(--muted)}.field{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.unit{color:var(--muted);font-size:12px}.help{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border:1px solid rgba(14,165,233,.55);border-radius:999px;font-size:12px;color:var(--fg);margin-left:8px;background:rgba(14,165,233,.08);cursor:pointer}.help:hover{filter:brightness(1.05)}.hint{margin-top:8px;padding:10px 12px;border:1px solid var(--border);border-radius:14px;background:var(--card2);color:var(--fg);font-size:12.5px;line-height:1.4;box-shadow:none}.dirty{border-color:rgba(239,68,68,.65)!important;box-shadow:0 0 0 3px rgba(239,68,68,.16);background:rgba(239,68,68,.10)}.gh{margin-right:10px;color:var(--acc);text-decoration:none;border:1px solid var(--border);background:var(--row);padding:6px 10px;border-radius:999px;font-size:12.5px}.gh:hover{border-color:rgba(14,165,233,.55);background:var(--row2)}.stream-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}@media(max-width:760px){.stream-grid{grid-template-columns:1fr}}.stream-sub{background:var(--row);border:1px solid var(--border);border-radius:14px;padding:12px}.stream-sub h3{font-size:12px;margin:0 0 8px;color:var(--acc);font-weight:800;letter-spacing:.1em;text-transform:uppercase}.lang{display:flex;align-items:center;gap:8px;white-space:nowrap;color:var(--muted);font-size:12.5px;flex-wrap:wrap;justify-content:flex-end}@media (max-width:760px){.page{padding:12px 10px 18px}.lang{width:100%;justify-content:flex-start;white-space:normal}.lang select{min-width:92px}.gh{margin-right:0}}pre{white-space:pre-wrap;word-break:break-word;background:var(--row);border:1px solid var(--border);border-radius:14px;padding:12px;overflow:auto;box-shadow:inset 0 1px 0 rgba(255,255,255,.05)} pre#logs{height:45vh}.overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55);z-index:9999}.overlay .box{background:var(--card);border:1px solid var(--border);padding:16px 20px;border-radius:16px;color:var(--fg);text-align:center;min-width:260px;box-shadow:var(--shadow)}.thermal-alert{border:2px solid var(--bad);background:var(--card);padding:18px;border-radius:14px;margin:12px 0}.thermal-alert strong{color:var(--bad);font-size:1.1rem}.thermal-alert p{margin:10px 0;overflow-wrap:anywhere}.thermal-alert button{white-space:normal}</style>
+<style>:root{color-scheme:light dark;--bg:#f6f7fb;--bg2:#eef2f8;--fg:#0f172a;--muted:#526079;--card:rgba(255,255,255,.88);--card2:rgba(255,255,255,.72);--border:rgba(15,23,42,.12);--acc:#0ea5e9;--acc2:#10b981;--warn:#f59e0b;--bad:#ef4444;--shadow:0 14px 34px rgba(15,23,42,.10);--shadow2:0 8px 18px rgba(15,23,42,.08);--row:rgba(15,23,42,.03);--row2:rgba(15,23,42,.05);--field:rgba(255,255,255,.70)}@media (prefers-color-scheme:dark){:root{--bg:#070a14;--bg2:#0b1632;--fg:#e8eefc;--muted:#a7b3cb;--card:rgba(15,23,42,.70);--card2:rgba(15,23,42,.55);--border:rgba(226,232,240,.14);--shadow:0 18px 44px rgba(0,0,0,.55);--shadow2:0 10px 22px rgba(0,0,0,.40);--row:rgba(255,255,255,.04);--row2:rgba(255,255,255,.06);--field:rgba(255,255,255,.04)}}:root[data-theme='light']{color-scheme:light;--bg:#f6f7fb;--bg2:#eef2f8;--fg:#0f172a;--muted:#526079;--card:rgba(255,255,255,.88);--card2:rgba(255,255,255,.72);--border:rgba(15,23,42,.12);--shadow:0 14px 34px rgba(15,23,42,.10);--shadow2:0 8px 18px rgba(15,23,42,.08);--row:rgba(15,23,42,.03);--row2:rgba(15,23,42,.05);--field:rgba(255,255,255,.70)}:root[data-theme='dark']{color-scheme:dark;--bg:#070a14;--bg2:#0b1632;--fg:#e8eefc;--muted:#a7b3cb;--card:rgba(15,23,42,.70);--card2:rgba(15,23,42,.55);--border:rgba(226,232,240,.14);--shadow:0 18px 44px rgba(0,0,0,.55);--shadow2:0 10px 22px rgba(0,0,0,.40);--row:rgba(255,255,255,.04);--row2:rgba(255,255,255,.06);--field:rgba(255,255,255,.04)}*{box-sizing:border-box}body{font-family:ui-rounded,"SF Pro Rounded","Segoe UI Variable","Segoe UI",system-ui,-apple-system,sans-serif;margin:0;color:var(--fg);background:radial-gradient(1100px 700px at 12% -10%,rgba(14,165,233,.18),transparent 60%),radial-gradient(900px 700px at 90% -20%,rgba(16,185,129,.16),transparent 55%),linear-gradient(180deg,var(--bg),var(--bg2));min-height:100vh}a{color:inherit}.page{max-width:1000px;margin:0 auto;padding:18px 16px 24px}.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:14px;margin:0;box-shadow:var(--shadow2);backdrop-filter:blur(10px)}.page>.card{margin-bottom:14px}.top{position:static}.hero{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin:0;flex-wrap:wrap}.hero>div:first-child{min-width:0;flex:1 1 300px}.brand{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap}.title{font-weight:850;font-size:18px;line-height:1.3}.badge{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--row);color:var(--muted);padding:4px 10px;border-radius:999px;font-size:12px}details.card>summary.sum{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0;margin:0;border:0}details.card>summary.sum::-webkit-details-marker{display:none}.chev{width:26px;height:26px;border-radius:999px;border:1px solid var(--border);display:inline-flex;align-items:center;justify-content:center;color:var(--muted);background:var(--row);font-weight:900;line-height:1}.chev:before{content:'+'}details[open]>summary.sum .chev:before{content:'−'}summary.sum:hover .chev{border-color:rgba(14,165,233,.55);background:var(--row2)}table{width:100%;border-collapse:separate;border-spacing:0 8px}td{padding:10px 10px;background:var(--row);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}tr td:first-child{border-left:1px solid var(--border);border-top-left-radius:12px;border-bottom-left-radius:12px}tr td:last-child{border-right:1px solid var(--border);border-top-right-radius:12px;border-bottom-right-radius:12px}td.k{color:var(--muted);width:44%;font-size:12.5px}td.v{font-weight:750;font-size:13px}button,select,input{font:inherit;padding:9px 11px;border-radius:12px;border:1px solid var(--border);background:var(--field);color:var(--fg)}option{background:#fff;color:#0f172a}button{background:var(--row);cursor:pointer;font-weight:800}button:hover{border-color:rgba(14,165,233,.55);background:var(--row2)}button:disabled{opacity:.55;cursor:not-allowed}button.active{background:rgba(14,165,233,.18);border-color:rgba(14,165,233,.55);color:var(--fg)}button.danger{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.35)}button.danger:hover{border-color:rgba(239,68,68,.55);background:rgba(239,68,68,.16)}button:focus-visible,select:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid rgba(14,165,233,.35);outline-offset:2px}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}#adv{font-size:12.5px;color:var(--muted);line-height:1.4}.ok{color:var(--acc2)} .warn{color:var(--warn)} .bad{color:var(--bad)}span.ok,span.warn,span.bad{display:inline-flex;align-items:center;padding:2px 10px;border-radius:999px;border:1px solid var(--border);background:var(--row);font-size:12px;font-weight:800}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}td.v .mono{overflow-wrap:anywhere;word-break:break-word}input[type=number]{width:130px} select{min-width:110px} .muted{color:var(--muted)}.field{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.unit{color:var(--muted);font-size:12px}.help{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border:1px solid rgba(14,165,233,.55);border-radius:999px;font-size:12px;color:var(--fg);margin-left:8px;background:rgba(14,165,233,.08);cursor:pointer}.help:hover{filter:brightness(1.05)}.hint{margin-top:8px;padding:10px 12px;border:1px solid var(--border);border-radius:14px;background:var(--card2);color:var(--fg);font-size:12.5px;line-height:1.4;box-shadow:none}.dirty{border-color:rgba(239,68,68,.65)!important;box-shadow:0 0 0 3px rgba(239,68,68,.16);background:rgba(239,68,68,.10)}.gh{margin-right:10px;color:var(--acc);text-decoration:none;border:1px solid var(--border);background:var(--row);padding:6px 10px;border-radius:999px;font-size:12.5px}.gh:hover{border-color:rgba(14,165,233,.55);background:var(--row2)}.stream-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}@media(max-width:760px){.stream-grid{grid-template-columns:1fr}}.stream-sub{background:var(--row);border:1px solid var(--border);border-radius:14px;padding:12px}.stream-sub h3{font-size:12px;margin:0 0 8px;color:var(--acc);font-weight:800;letter-spacing:.1em;text-transform:uppercase}.lang{display:flex;align-items:center;gap:8px;white-space:nowrap;color:var(--muted);font-size:12.5px;flex-wrap:wrap;justify-content:flex-end}@media (max-width:760px){.page{padding:12px 10px 18px}.lang{width:100%;justify-content:flex-start;white-space:normal}.lang select{min-width:92px}.gh{margin-right:0}}pre{white-space:pre-wrap;word-break:break-word;background:var(--row);border:1px solid var(--border);border-radius:14px;padding:12px;overflow:auto;box-shadow:inset 0 1px 0 rgba(255,255,255,.05)} pre#logs{height:45vh}.overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55);z-index:9999}.overlay .box{background:var(--card);border:1px solid var(--border);padding:16px 20px;border-radius:16px;color:var(--fg);text-align:center;min-width:260px;box-shadow:var(--shadow)}.thermal-alert{border:2px solid var(--bad);background:var(--card);padding:18px;border-radius:14px;margin:12px 0}.thermal-alert strong{color:var(--bad);font-size:1.1rem}.thermal-alert p{margin:10px 0;overflow-wrap:anywhere}.thermal-alert button{white-space:normal}
+#mic_dialog{color:var(--fg);background:var(--bg);border:1px solid var(--border);border-radius:14px;padding:20px;width:min(560px,calc(100% - 32px));max-height:85dvh;overflow:auto;box-sizing:border-box}
+#mic_dialog::backdrop{background:#0009}#mic_dialog h2{margin-top:0}#mic_dialog table{display:table;width:100%;table-layout:fixed}#mic_dialog tbody{display:table-row-group}#mic_dialog tr{display:table-row}#mic_dialog th,#mic_dialog td{padding:7px 4px;overflow-wrap:anywhere;text-align:left}#mic_dialog .actions{display:flex;flex-wrap:wrap;gap:8px}#mic_dialog .actions button{flex:1 1 180px;white-space:normal}
+</style>
 <style>
 #audio_settings{table-layout:fixed}
 #sel_mic_format{width:100%;min-width:0;max-width:360px}
@@ -182,7 +185,7 @@
 <option value='1'>Adafruit SPH0645 (MSB / left-justified)</option>
 <option value='2' id='opt_pdm'>PDM microphone (IM73D122)</option>
 </select>
-<button onclick="setv('mic_format',sel_mic_format.value)">Apply</button><small id='mic_format_label' class='muted'></small>
+<button id='btn_mic_apply' onclick="chooseMicSettings()">Apply</button><button id='btn_mic_recommended' onclick="chooseMicSettings(true)">Recommended settings</button><small id='mic_format_label' class='muted'></small>
 </div>
 </td>
 </tr>
@@ -702,7 +705,7 @@
 <tr>
 <td class='k'>
 <span id='t_cpu'>CPU Frequency</span>
-<button type='button' class='help' id='h_cpu' aria-label='Help' aria-expanded='false' title="Lower MHz runs cooler but can increase latency.">?</button>
+<button type='button' class='help' id='h_cpu' aria-label='Help' aria-expanded='false' title="Higher MHz gives more CPU headroom but can run hotter. 240 MHz is available on S3/C5.">?</button>
 </td>
 <td class='v'>
 <div class='field'>
@@ -718,7 +721,7 @@
 </tr>
 <tr id='row_cpu_hint' style='display:none'>
 <td colspan='2'>
-<div class='hint' id='txt_cpu_hint'>Lower MHz runs cooler but can increase latency.</div>
+<div class='hint' id='txt_cpu_hint'>Higher MHz gives more CPU headroom but can run hotter. 240 MHz is available on S3/C5.</div>
 </td>
 </tr></table>
 </details>
@@ -961,15 +964,26 @@
 </pre>
 </details>
 </main>
+<dialog id='mic_dialog' aria-labelledby='mic_dialog_title' aria-describedby='mic_dialog_note'>
+<h2 id='mic_dialog_title' tabindex='-1' autofocus>Use recommended microphone settings?</h2>
+<p id='mic_dialog_target'></p>
+<table aria-label='Microphone setting changes'><thead><tr><th scope='col'>Setting</th><th scope='col'>Saved</th><th scope='col'>Recommended</th></tr></thead><tbody id='mic_dialog_rows'></tbody></table>
+<p id='mic_dialog_note' class='muted'></p><p id='mic_dialog_drafts' class='warn'></p>
+<p class='muted'>Saving briefly interrupts audio. PDM always uses 48 kHz; I2S Shift is unused.</p>
+<div class='actions'><button id='btn_mic_use' onclick="saveMicSettings('recommended')">Use recommended and save</button><button id='btn_mic_keep' onclick="saveMicSettings('keep')">Keep saved values and save</button><button id='btn_mic_cancel' onclick="document.getElementById('mic_dialog').close()">Cancel</button></div>
+</dialog>
 <script>
 let wifiApState = null, wifiApDraft = '', wifiApDirty = false, wifiApBusy = false;
 let wifiApResults = [], wifiApMessage = '', wifiApExpected = null;
 const apNode = id => document.getElementById(id);
 function wifiApModeChanged() {
-  wifiApDirty = true;
   if (apNode('wifi_ap_mode').value === 'locked' && !wifiApDraft && wifiApState)
     wifiApDraft = wifiApState.locked_bssid || wifiApState.bssid || '';
-  renderWifiAp();
+  updateWifiApDirty();renderWifiAp();
+}
+function updateWifiApDirty(){
+ const value=apNode('wifi_ap_mode').value==='locked'?wifiApDraft:'';
+ wifiApDirty=!!wifiApState&&value!==(wifiApState.locked_bssid||'');
 }
 function renderWifiAp() {
   const locked = apNode('wifi_ap_mode').value === 'locked';
@@ -989,7 +1003,7 @@ function renderWifiAp() {
     const radio = document.createElement('input');
     radio.type = 'radio'; radio.name = 'wifi_ap_choice'; radio.value = ap.bssid;
     radio.checked = ap.bssid === wifiApDraft; radio.disabled = wifiApBusy;
-    radio.onchange = () => { wifiApDraft = ap.bssid; wifiApDirty = true; renderWifiAp(); };
+    radio.onchange = () => { wifiApDraft = ap.bssid; updateWifiApDirty(); renderWifiAp(); };
     const connected = wifiApState && wifiApState.connected && ap.bssid === wifiApState.bssid;
     const saved = wifiApState && ap.bssid === wifiApState.locked_bssid;
     const strength = Number.isFinite(ap.rssi) ? ' · ' + ap.rssi + ' dBm' : '';
@@ -1064,7 +1078,7 @@ async function defaultsNow(){
  if(!confirm('Restore factory settings and reboot? Audio, schedules, MQTT and access-point selection will be reset. The saved Wi-Fi network remains.'))return;
  if(await act('factory_reset')) rebootSequence('factory_reset');
 }
-const editVersions={}, sectionBusy=new Set();
+const editVersions={}, confirmedValues={}, sectionBusy=new Set(), savingKeys=new Set(), pendingSyncKeys=new Set();
 function feedback(section,text,kind='muted'){
  const root=$(section)||$('recoverysec');let box=root.querySelector(':scope > .feedback');
  if(!box){box=document.createElement('div');box.setAttribute('role','status');box.setAttribute('aria-live','polite');root.querySelector('summary').after(box);}
@@ -1077,13 +1091,14 @@ function updateDiscard(root){
 }
 async function discardChanges(id){
  if(sectionBusy.has(id))return;
- $(id).querySelectorAll('[data-dirty-key]').forEach(el=>{const k=el.dataset.dirtyKey;clearDirty(k);if(el.type==='password')el.value='';if(el.type==='checkbox')el.checked=false;});
+ $(id).querySelectorAll('[data-dirty-key]').forEach(el=>{const k=el.dataset.dirtyKey;pendingSyncKeys.delete(k);clearDirty(k);if(el.type==='password')el.value='';if(el.type==='checkbox')el.checked=false;});
  feedback(id,'Changes discarded.');await refreshAll();updateDependencies();
 }
 const saveErrors={invalid_value:'The device rejected this value. Check its range and the selected microphone.',invalid_schedule:'Use different start and end times. Sleep requires an enabled schedule.',invalid_mqtt:'Check the broker address, port and password settings.',thermal_latched:'Thermal protection is active. Wait for cooling and acknowledge the warning.',i2s_restart_failed:'The microphone could not restart. Check its wiring and format.'};
 async function saveValues(url,values,keys,section,success='Saved.'){
  if(sectionBusy.has(section))return false;
- const versions=keys.map(k=>editVersions[k]||0);keys.forEach(markDirty);
+ const versions=keys.map(k=>editVersions[k]||0);
+ keys.forEach(k=>{savingKeys.add(k);pendingSyncKeys.add(k);markDirty(k);});
  sectionBusy.add(section);updateDiscard($(section));feedback(section,'Saving…');
  try{
   const response=await mutationFetch(url,new URLSearchParams(values).toString());
@@ -1092,9 +1107,15 @@ async function saveValues(url,values,keys,section,success='Saved.'){
   // Let older status requests finish while drafts are still protected.
   if(pollPromise)await pollPromise;
   keys.forEach((k,i)=>{if((editVersions[k]||0)===versions[i])clearDirty(k);});
+  keys.forEach(k=>savingKeys.delete(k));
   feedback(section,success,'ok');await refreshAll();return true;
  }catch(error){feedback(section,error.message&&saveErrors&&Object.values(saveErrors).includes(error.message)?error.message:'Could not confirm the change. Your edits are kept; check the connection and try again.','bad');return false;}
- finally{sectionBusy.delete(section);updateDiscard($(section));}
+ finally{
+  // A response started before the write must not become the new saved baseline.
+  if(pollPromise)await pollPromise;
+  keys.forEach(k=>savingKeys.delete(k));
+  sectionBusy.delete(section);updateDiscard($(section));
+ }
 }
 const scheduleKeys=['stream_sched','stream_start_min','stream_stop_min','deep_sleep_sched'];
 async function saveSchedule(){
@@ -1110,10 +1131,9 @@ async function saveMqttConnection(){
  if((enabled==='on'&&!host)||!$('in_mqtt_port').checkValidity()||!port||(clear&&password)){
   feedback('mqttsec','Enter a broker address and valid port. Choose either a new password or Clear.','bad');return;
  }
- const version=editVersions.mqtt_pass||0,clearVersion=editVersions.mqtt_clear_password||0;
  if(await saveValues('/api/settings/mqtt',{enabled,host,port,user:$('in_mqtt_user').value,password,clear_password:clear?'on':'off'},mqttConnectionKeys,'mqttsec','Connection settings saved. Check connection status below.')){
-  if((editVersions.mqtt_pass||0)===version)$('in_mqtt_pass').value='';
-  if((editVersions.mqtt_clear_password||0)===clearVersion)$('mqtt_clear_password').checked=false;
+  syncInput($('in_mqtt_pass'),'mqtt_pass','');
+  syncInput($('mqtt_clear_password'),'mqtt_clear_password',false);
  }
 }
 function updateDependencies(){
@@ -1132,18 +1152,41 @@ const locks={}; const edits={}; const dirtyEls={};const LOG_STICKY_PX=24; let lo
  return saveValues('/api/set',{key:k,value:v},[k],section);
 }
 function setvRaw(k,v){return saveValues('/api/set',{key:k,value:String(v??'').trim()},[k],dirtyEls[k]?.[0]?.closest('details.card')?.id);}
-function bindSaver(el,key){if(!el)return; el.addEventListener('keydown',e=>{if(e.key==='Enter'){setv(key,el.value)}})}function bindEnter(el,fn){if(!el)return; el.addEventListener('keydown',e=>{if(e.key==='Enter'){fn()}})}function syncInput(el,key,value){if(el){if(!edits[key])el.value=value;toggleDirty(el,key);}}
+function bindSaver(el,key){if(!el)return; el.addEventListener('keydown',e=>{if(e.key==='Enter'){setv(key,el.value)}})}function bindEnter(el,fn){if(!el)return; el.addEventListener('keydown',e=>{if(e.key==='Enter'){fn()}})}function fieldValue(el,value=el.type==='checkbox'?el.checked:el.value){
+ if(el.type==='checkbox')return !!value;
+ const text=String(value??'');
+ if(el.type==='number'&&text.trim()!==''&&Number.isFinite(Number(text.replace(',','.'))))return Number(text.replace(',','.'));
+ return el.type==='password'?text:text.trim();
+}
+function differsFromSaved(key){
+ return (dirtyEls[key]||[]).some(el=>fieldValue(el)!==confirmedValues[key]);
+}
+function reconcileEdit(key){
+ if(differsFromSaved(key)||pendingSyncKeys.has(key))edits[key]=Infinity;
+ else{delete edits[key];delete locks[key];}
+ (dirtyEls[key]||[]).forEach(el=>toggleDirty(el,key));
+}
+function syncInput(el,key,value){
+ if(!el)return;
+ if(savingKeys.has(key)){toggleDirty(el,key);return;}
+ const editing=!!edits[key],locked=locks[key]&&Date.now()<locks[key];
+ confirmedValues[key]=fieldValue(el,value);pendingSyncKeys.delete(key);
+ if(locked&&!editing){toggleDirty(el,key);return;}
+ if(!editing){if(el.type==='checkbox')el.checked=!!value;else el.value=value;}
+ reconcileEdit(key);
+}
 function trackEdit(el,key){
  if(!el)return; el.dataset.dirtyKey=key;
  if(!dirtyEls[key]) dirtyEls[key]=[];
  if(!dirtyEls[key].includes(el)) dirtyEls[key].push(el);
- const bump=()=>{editVersions[key]=(editVersions[key]||0)+1;markDirty(key);};
+ if(!Object.hasOwn(confirmedValues,key))confirmedValues[key]=fieldValue(el);
+ const bump=()=>{editVersions[key]=(editVersions[key]||0)+1;reconcileEdit(key);};
  el.addEventListener('input',bump);el.addEventListener('change',bump);
 }
 function markDirty(key){edits[key]=Infinity; (dirtyEls[key]||[]).forEach(el=>toggleDirty(el,key));}
 function clearDirty(key){delete edits[key];delete locks[key];(dirtyEls[key]||[]).forEach(el=>toggleDirty(el,key));}
 function toggleDirty(el,key){
- if(!el)return; const dirty=!!edits[key]; el.classList.toggle('dirty',dirty);
+ if(!el)return; const dirty=!!edits[key]&&differsFromSaved(key); el.classList.toggle('dirty',dirty);
  const field=el.closest('.field');
  if(field){let note=field.querySelector('.edit-note');if(!note){note=document.createElement('span');note.className='edit-note';field.append(note);}note.textContent=dirty?'Unsaved':'';}
  updateDiscard(el.closest('details.card'));
@@ -1178,7 +1221,7 @@ function updateOverview(kind,j){
  if(status.stream_schedule_enabled&&!status.stream_schedule_time_valid)text+=' · schedule waiting for clock';
  put('overview_streams',text,cls);const link=$('overview_streams');link.href='#'+target;link.onclick=()=>openSection(target);
 }
-function loadStatus(){return fetchJSON('/api/status').then(j=>{ updateOverview('status',j); $('ip').textContent=j.ip; $('rssi').textContent=j.wifi_rssi+' dBm'; $('wtx').textContent=j.wifi_tx_dbm.toFixed(1)+' dBm'; $('heap').textContent=j.free_heap_kb+' KB ('+j.min_free_heap_kb+' KB)'; $('uptime').textContent=j.uptime; $('srv').innerHTML=fmtSrv(j.rtsp_server_enabled); setToggleState(j.rtsp_server_enabled); $('s1_client').textContent=(j.s1_clients>0)?j.s1_clients+' client(s)':j.stream1_enabled?'Waiting...':'Disabled'; $('s1_stream').innerHTML=fmtBool(j.s1_streaming); $('s1_rate').textContent=j.s1_pkt_rate+' pkt/s'; $('s1_lplay').textContent=j.s1_last_play||'never'; $('s2_client').textContent=(j.s2_clients>0)?j.s2_clients+' client(s)':(j.stream2_enabled?'Waiting...':'Disabled'); $('s2_stream').innerHTML=j.stream2_enabled?fmtBool(j.s2_streaming):'<span class=muted>N/A</span>'; $('s2_rate').textContent=j.stream2_enabled?(j.s2_pkt_rate+' pkt/s'):'—'; $('s2_lplay').textContent=j.stream2_enabled?(j.s2_last_play||'never'):'—'; $('time_sync').innerHTML=fmtBool(j.time_synced); $('last_sync').textContent=j.last_time_sync; renderTimeRows(j); const now=Date.now(); const stx=$('sel_tx'); syncInput(stx,'wifi_tx',j.wifi_tx_dbm.toFixed(1)); const md=$('sel_mdns'); syncInput(md,'mdns_enable',j.mdns_enabled?'on':'off'); const mh=$('in_mdns_host'); syncInput(mh,'mdns_hostname',j.mdns_hostname||''); const tse=$('sel_time_sync'); syncInput(tse,'time_sync',j.time_sync_enabled?'on':'off'); const zoneSel=$('sel_time_zone_mode'); syncInput(zoneSel,'time_zone_mode',String(j.time_zone_mode||0)); updateTimeZoneVisibility(); const ruleInput=$('in_time_zone_rule'); syncInput(ruleInput,'time_zone_rule',j.time_zone_rule||''); const offSel=$('sel_offset'); if(offSel){ const editing=(edits['time_offset']&&now<edits['time_offset']); const hours=(j.time_offset_min||0)/60; if(!(locks['time_offset']&&now<locks['time_offset']) && !editing) offSel.value=String(hours); toggleDirty(offSel,'time_offset'); } const fv=$('fwv'); if(fv && j.fw_version){ fv.textContent='v'+j.fw_version; } const ui=$('url_ip'); if(ui){ ui.textContent=j.stream1_url_ip; ui.href=j.stream1_url_ip; } const um=$('url_mdns'); const umw=$('url_mdns_wrap'); if(um){ if(j.mdns_enabled){ um.textContent=j.stream1_url_mdns; um.href=j.stream1_url_mdns; um.style.opacity='1'; if(umw) umw.style.display=''; } else { um.textContent='—'; um.removeAttribute('href'); um.style.opacity='0.6'; if(umw) umw.style.display='none'; } } const u2=$('url2_ip'); if(u2){ u2.textContent=j.stream2_url_ip; u2.href=j.stream2_url_ip; } const u2m=$('url2_mdns'); const u2mw=$('url2_mdns_wrap'); if(u2m){ if(j.mdns_enabled){ u2m.textContent=j.stream2_url_mdns; u2m.href=j.stream2_url_mdns; u2m.style.opacity='1'; if(u2mw) u2mw.style.display=''; } else { u2m.textContent='—'; u2m.removeAttribute('href'); u2m.style.opacity='0.6'; if(u2mw) u2mw.style.display='none'; } } const s1t=$('sel_stream1_target'); syncInput(s1t,'stream1_target',String(j.stream1_target||0)); const s2t=$('sel_stream2_target'); syncInput(s2t,'stream2_target',String(j.stream2_target||0)); const s1e=$('sel_stream1_enabled'); syncInput(s1e,'stream1_enabled',j.stream1_enabled?'on':'off'); const s2e=$('sel_stream2_enabled'); syncInput(s2e,'stream2_enabled',j.stream2_enabled?'on':'off'); const s1tp=$('s1_transport'); if(s1tp) s1tp.textContent=(j.stream1_target===0)?'TCP':'UDP'; const s2tp=$('s2_transport'); if(s2tp) s2tp.textContent=(j.stream2_target===0)?'TCP':'UDP'; const mc=$('sel_max_clients'); syncInput(mc,'max_clients',String(j.max_clients||2)); loadStreamSchedule(j); loadMqtt(j); })}function renderAudioLevel(j){
+function loadStatus(){return fetchJSON('/api/status').then(j=>{ updateOverview('status',j); $('ip').textContent=j.ip; $('rssi').textContent=j.wifi_rssi+' dBm'; $('wtx').textContent=j.wifi_tx_dbm.toFixed(1)+' dBm'; $('heap').textContent=j.free_heap_kb+' KB ('+j.min_free_heap_kb+' KB)'; $('uptime').textContent=j.uptime; $('srv').innerHTML=fmtSrv(j.rtsp_server_enabled); setToggleState(j.rtsp_server_enabled); $('s1_client').textContent=(j.s1_clients>0)?j.s1_clients+' client(s)':j.stream1_enabled?'Waiting...':'Disabled'; $('s1_stream').innerHTML=fmtBool(j.s1_streaming); $('s1_rate').textContent=j.s1_pkt_rate+' pkt/s'; $('s1_lplay').textContent=j.s1_last_play||'never'; $('s2_client').textContent=(j.s2_clients>0)?j.s2_clients+' client(s)':(j.stream2_enabled?'Waiting...':'Disabled'); $('s2_stream').innerHTML=j.stream2_enabled?fmtBool(j.s2_streaming):'<span class=muted>N/A</span>'; $('s2_rate').textContent=j.stream2_enabled?(j.s2_pkt_rate+' pkt/s'):'—'; $('s2_lplay').textContent=j.stream2_enabled?(j.s2_last_play||'never'):'—'; $('time_sync').innerHTML=fmtBool(j.time_synced); $('last_sync').textContent=j.last_time_sync; renderTimeRows(j); const now=Date.now(); const stx=$('sel_tx'); syncInput(stx,'wifi_tx',j.wifi_tx_dbm.toFixed(1)); const md=$('sel_mdns'); syncInput(md,'mdns_enable',j.mdns_enabled?'on':'off'); const mh=$('in_mdns_host'); syncInput(mh,'mdns_hostname',j.mdns_hostname||''); const tse=$('sel_time_sync'); syncInput(tse,'time_sync',j.time_sync_enabled?'on':'off'); const zoneSel=$('sel_time_zone_mode'); syncInput(zoneSel,'time_zone_mode',String(j.time_zone_mode||0)); updateTimeZoneVisibility(); const ruleInput=$('in_time_zone_rule'); syncInput(ruleInput,'time_zone_rule',j.time_zone_rule||''); const offSel=$('sel_offset'); if(offSel)syncInput(offSel,'time_offset',String((j.time_offset_min||0)/60)); const fv=$('fwv'); if(fv && j.fw_version){ fv.textContent='v'+j.fw_version; } const ui=$('url_ip'); if(ui){ ui.textContent=j.stream1_url_ip; ui.href=j.stream1_url_ip; } const um=$('url_mdns'); const umw=$('url_mdns_wrap'); if(um){ if(j.mdns_enabled){ um.textContent=j.stream1_url_mdns; um.href=j.stream1_url_mdns; um.style.opacity='1'; if(umw) umw.style.display=''; } else { um.textContent='—'; um.removeAttribute('href'); um.style.opacity='0.6'; if(umw) umw.style.display='none'; } } const u2=$('url2_ip'); if(u2){ u2.textContent=j.stream2_url_ip; u2.href=j.stream2_url_ip; } const u2m=$('url2_mdns'); const u2mw=$('url2_mdns_wrap'); if(u2m){ if(j.mdns_enabled){ u2m.textContent=j.stream2_url_mdns; u2m.href=j.stream2_url_mdns; u2m.style.opacity='1'; if(u2mw) u2mw.style.display=''; } else { u2m.textContent='—'; u2m.removeAttribute('href'); u2m.style.opacity='0.6'; if(u2mw) u2mw.style.display='none'; } } const s1t=$('sel_stream1_target'); syncInput(s1t,'stream1_target',String(j.stream1_target||0)); const s2t=$('sel_stream2_target'); syncInput(s2t,'stream2_target',String(j.stream2_target||0)); const s1e=$('sel_stream1_enabled'); syncInput(s1e,'stream1_enabled',j.stream1_enabled?'on':'off'); const s2e=$('sel_stream2_enabled'); syncInput(s2e,'stream2_enabled',j.stream2_enabled?'on':'off'); const s1tp=$('s1_transport'); if(s1tp) s1tp.textContent=(j.stream1_target===0)?'TCP':'UDP'; const s2tp=$('s2_transport'); if(s2tp) s2tp.textContent=(j.stream2_target===0)?'TCP':'UDP'; const mc=$('sel_max_clients'); syncInput(mc,'max_clients',String(j.max_clients||2)); loadStreamSchedule(j); loadMqtt(j); })}function renderAudioLevel(j){
  const lvl=$('level'); if(!lvl) return;
  const L=T[lang]||T.en;
  const pct=typeof j.peak_pct==='number'&&Number.isFinite(j.peak_pct)?j.peak_pct:0;
@@ -1225,10 +1268,49 @@ $('health_clients').textContent=(j.rtsp_client_teardowns??0)+' / '+(j.rtsp_clien
 $('health_buffer').textContent=(j.rb_drops??0)+' / '+(j.rb_flushes??0);
 $('health_stop').textContent=j.last_stop_time ? (j.last_stop_stream?'Stream '+j.last_stop_stream:'All streams')+' — '+j.last_stop_reason+' — '+j.last_stop_time+' ('+j.last_stop_age+')' : 'No stop recorded';
 }
+let micDialogState=null,micDialogLoading=false;
+const micProfileKeys=['mic_format','rate','gain','buffer','shift','hp_enable','hp_cutoff'];
+async function chooseMicSettings(force=false){
+ if(micDialogLoading||micDialogState||sectionBusy.has('audiosec')||sectionBusy.has('thermalsec'))return;
+ const format=Number($('sel_mic_format').value),label=$('sel_mic_format').selectedOptions[0]?.textContent||'';
+ micDialogLoading=true;
+ try{
+  const [p,a,t]=await Promise.all([fetchJSON('/api/microphone_profile?format='+format),fetchJSON('/api/audio_status'),fetchJSON('/api/thermal')]);
+  if(!p.ok||p.mic_format!==format)throw new Error('profile');
+  if(Number($('sel_mic_format').value)!==format||sectionBusy.has('audiosec')||sectionBusy.has('thermalsec'))return;
+  if(!force&&a.mic_format===format){feedback('audiosec','This microphone is already selected. Use Recommended settings to review its defaults.');return;}
+  const rows=$('mic_dialog_rows');rows.replaceChildren();
+  const add=(label,old,value)=>{const tr=document.createElement('tr');for(const text of [label,old,value]){const td=document.createElement('td');td.textContent=String(text);tr.append(td);}rows.append(tr);};
+  add('Sample rate',a.sample_rate+' Hz',p.sample_rate+' Hz');
+  add('Gain',a.gain,p.gain);add('RTP packet size',a.buffer_size+' samples',p.buffer_size+' samples');
+  add('I2S Shift',a.mic_format===2?'Unused':a.i2s_shift,format===2?'Unused':p.i2s_shift);
+  add('High-pass filter',a.hp_enable?'On':'Off',p.hp_enable?'On':'Off');
+  add('HPF cutoff',a.hp_cutoff_hz+' Hz',p.hp_cutoff_hz+' Hz');
+  if(p.cpu_mhz)add('CPU frequency',t.cpu_mhz+' MHz',p.cpu_mhz+' MHz');
+  $('mic_dialog_target').textContent=p.board+' · '+label;
+  $('mic_dialog_note').textContent=format===2?'Gain 24 is a starting point. Check the level with Listen and reduce Gain if clipping occurs.':'These are starting values. Use Listen to check the level and adjust Gain for your microphone and location.';
+  $('mic_dialog_drafts').textContent=micProfileKeys.concat(p.cpu_mhz?['cpu_freq']:[]).some(k=>edits[k])?'Using recommendations replaces unsaved edits for the settings shown above. Keeping saved values leaves other edits pending.':'';
+  micDialogState={format,profile:p};$('mic_dialog').showModal();$('mic_dialog').scrollTop=0;
+ }catch(_){micDialogState=null;feedback('audiosec','Could not load microphone recommendations. Check the connection and try again.','bad');}
+ finally{micDialogLoading=false;}
+}
+async function saveMicSettings(mode){
+ const state=micDialogState;if(!state)return;
+ micDialogState=null;$('mic_dialog').close();
+ const keys=mode==='recommended'?micProfileKeys.filter(k=>k!=='shift'||state.format!==2):['mic_format'];
+ // A saved custom sample-rate draft cannot be used while PDM locks it to 48 kHz.
+ if(state.format===2&&!keys.includes('rate'))keys.push('rate');
+ if(mode==='recommended'&&state.profile.cpu_mhz)keys.push('cpu_freq');
+ const cpuChange=mode==='recommended'&&state.profile.cpu_mhz;
+ if(cpuChange){sectionBusy.add('thermalsec');updateDiscard($('thermalsec'));}
+ try{await saveValues('/api/settings/microphone',{format:state.format,settings:mode},keys,'audiosec',mode==='recommended'?'Microphone and recommended settings saved.':'Microphone saved. Custom values preserved.');}
+ finally{if(cpuChange){sectionBusy.delete('thermalsec');updateDiscard($('thermalsec'));}}
+}
+$('mic_dialog').addEventListener('close',()=>{micDialogState=null;});
 function renderMicFormat(j){
   const select=document.getElementById('sel_mic_format');
   const now=Date.now();
-  if(select && !(edits.mic_format&&now<edits.mic_format) && !(locks.mic_format&&now<locks.mic_format)) select.value=String(j.mic_format);
+  if(select)syncInput(select,'mic_format',String(j.mic_format));
   if(select){toggleDirty(select,'mic_format');document.getElementById('mic_format_label').textContent=select.selectedOptions[0]?.textContent||'';}
   const option=document.getElementById('opt_pdm');
   if(option) option.disabled=j.pdm_supported!==true;
@@ -1245,7 +1327,7 @@ function renderThermalRecovery(j){
  thermalAutoPending=!!j.auto_resume_pending;
  const stop=$('b_srv_off'); if(stop&&thermalAutoPending) stop.disabled=false;
  const now=Date.now(), auto=$('sel_oh_auto');
- if(auto){ if(!(locks.oh_auto&&now<locks.oh_auto) && !(edits.oh_auto&&now<edits.oh_auto)) auto.value=j.auto_resume_enabled?'on':'off'; toggleDirty(auto,'oh_auto'); }
+ if(auto)syncInput(auto,'oh_auto',j.auto_resume_enabled?'on':'off');
  const latched=!!j.latched_persist, notice=!!j.notice;
  const count=$('therm_trip_count'); if(count) count.textContent=String(j.trips_24h||0)+' / 3';
  const limit=Number(j.cool_limit_c).toFixed(0), seconds=Math.max(0,Number(j.cool_remaining_sec)||0);
@@ -1272,7 +1354,7 @@ function renderThermalRecovery(j){
  const statusEl=$('therm_status'); if(statusEl){ statusEl.textContent=status; statusEl.className=latched||j.sensor_fault?'warn':!j.protection_enabled?'bad':'ok'; }
  for(const id of ['btn_therm_clear','btn_thermal_notice_ack']){ const btn=$(id); if(btn){ btn.textContent=latched?'Acknowledge and restore operation':'Acknowledge warning'; btn.disabled=!j.can_acknowledge; } }
 }
-function loadTherm(){return fetchJSON('/api/thermal').then(j=>{ const now=Date.now(); const L=T[lang]; const en=$('sel_oh_enable'); syncInput(en,'oh_enable',j.protection_enabled?'on':'off'); const lim=$('sel_oh_limit'); syncInput(lim,'oh_limit',(Number(j.shutdown_c)||80).toFixed(0)); const sc=$('sel_cpu'); syncInput(sc,'cpu_freq',j.cpu_mhz); const currentValid=(j.current_valid&&typeof j.current_c==='number'&&isFinite(j.current_c)); const cur=$('therm_now'); if(cur) cur.textContent=currentValid?j.current_c.toFixed(1)+' °C':'N/A'; const max=$('therm_max'); if(max){ const maxValid=(typeof j.max_c==='number'&&isFinite(j.max_c)); max.textContent=maxValid?j.max_c.toFixed(1)+' °C':'N/A'; } const cpu=$('therm_cpu'); if(cpu) cpu.textContent=j.cpu_mhz+' MHz'; renderThermalRecovery(j); updateOverview('thermal',j); const last=$('therm_last'); if(last){ if(j.sensor_fault){ last.textContent=L.therm_last_sensor_fault; } else if(j.last_trip_ts && j.last_trip_ts.length){ let msg=L.therm_last_fmt; const temp=(typeof j.last_trip_c==='number'&&isFinite(j.last_trip_c)&&j.last_trip_c>0)?j.last_trip_c.toFixed(1):'0'; const limit=(Number(j.shutdown_c)||0).toFixed(0); const ts=j.last_trip_ts||L.therm_time_unknown; const ago=j.last_trip_since||L.therm_time_ago_unknown; msg=msg.replace('%TEMP%',temp).replace('%LIMIT%',limit).replace('%TIME%',ts).replace('%AGO%',ago); last.textContent=msg; if(j.latched_persist){ last.textContent+=' — '+(j.auto_resume_pending?'Waiting for cooling':L.therm_status_latched_persist); } else if(j.manual_restart){ last.textContent+=' — '+L.therm_status_latched; } } else if(j.last_reason && j.last_reason.length){ last.textContent=j.last_reason; } else { last.textContent=L.therm_last_none; } } })}function loadLogs(){ const lg=$('logs'); if(!lg) return Promise.resolve(); bindLogScroll(); return fetch('/api/logs',{cache:'no-store'}).then(r=>r.text()).then(t=>{ const pinBottom = logAutoScroll || isLogNearBottom(lg); const bottomOffset = lg.scrollHeight - lg.scrollTop; lg.textContent=t; if(pinBottom){ lg.scrollTop=lg.scrollHeight; } else { lg.scrollTop=Math.max(0, lg.scrollHeight-bottomOffset); } })}function downloadLogs(){ fetch('/api/logs?download=1',{cache:'no-store'}).then(r=>r.blob()).then(b=>{ const url=URL.createObjectURL(b); const a=document.createElement('a'); a.href=url; a.download='esp32mic-log.txt'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),2000); }); }function setOffset(){ const sel=$('sel_offset'); if(!sel) return; const h=Number(sel.value); if(!Number.isFinite(h)||h < -12||h > 14) return; setv('time_offset', Math.round(h*60)); }function confirmNetReset(){ const L=T[lang]; if(confirm(L.net_reset_confirm||'Reset Wi-Fi settings and reboot?')){ act('network_reset'); } }const POLL_FAST_MS=3000, POLL_SLOW_MS=15000; let pollBusy=false,pollPromise=null,lastSlowPoll=0,lastLogPoll=0;const pollErrors={};function logsOpen(){ const d=document.getElementById('logssec'); return !!(d&&d.open); }function loadAll(force){
+function loadTherm(){return fetchJSON('/api/thermal').then(j=>{ const now=Date.now(); const L=T[lang]; const en=$('sel_oh_enable'); syncInput(en,'oh_enable',j.protection_enabled?'on':'off'); const lim=$('sel_oh_limit'); syncInput(lim,'oh_limit',(Number(j.shutdown_c)||80).toFixed(0)); const sc=$('sel_cpu'); const fast=sc.querySelector('option[value="240"]'); if(j.cpu_max_mhz>=240&&!fast)sc.add(new Option('240','240'));else if(!(j.cpu_max_mhz>=240)&&fast)fast.remove(); syncInput(sc,'cpu_freq',j.cpu_mhz); const currentValid=(j.current_valid&&typeof j.current_c==='number'&&isFinite(j.current_c)); const cur=$('therm_now'); if(cur) cur.textContent=currentValid?j.current_c.toFixed(1)+' °C':'N/A'; const max=$('therm_max'); if(max){ const maxValid=(typeof j.max_c==='number'&&isFinite(j.max_c)); max.textContent=maxValid?j.max_c.toFixed(1)+' °C':'N/A'; } const cpu=$('therm_cpu'); if(cpu) cpu.textContent=j.cpu_mhz+' MHz'; renderThermalRecovery(j); updateOverview('thermal',j); const last=$('therm_last'); if(last){ if(j.sensor_fault){ last.textContent=L.therm_last_sensor_fault; } else if(j.last_trip_ts && j.last_trip_ts.length){ let msg=L.therm_last_fmt; const temp=(typeof j.last_trip_c==='number'&&isFinite(j.last_trip_c)&&j.last_trip_c>0)?j.last_trip_c.toFixed(1):'0'; const limit=(Number(j.shutdown_c)||0).toFixed(0); const ts=j.last_trip_ts||L.therm_time_unknown; const ago=j.last_trip_since||L.therm_time_ago_unknown; msg=msg.replace('%TEMP%',temp).replace('%LIMIT%',limit).replace('%TIME%',ts).replace('%AGO%',ago); last.textContent=msg; if(j.latched_persist){ last.textContent+=' — '+(j.auto_resume_pending?'Waiting for cooling':L.therm_status_latched_persist); } else if(j.manual_restart){ last.textContent+=' — '+L.therm_status_latched; } } else if(j.last_reason && j.last_reason.length){ last.textContent=j.last_reason; } else { last.textContent=L.therm_last_none; } } })}function loadLogs(){ const lg=$('logs'); if(!lg) return Promise.resolve(); bindLogScroll(); return fetch('/api/logs',{cache:'no-store'}).then(r=>r.text()).then(t=>{ const pinBottom = logAutoScroll || isLogNearBottom(lg); const bottomOffset = lg.scrollHeight - lg.scrollTop; lg.textContent=t; if(pinBottom){ lg.scrollTop=lg.scrollHeight; } else { lg.scrollTop=Math.max(0, lg.scrollHeight-bottomOffset); } })}function downloadLogs(){ fetch('/api/logs?download=1',{cache:'no-store'}).then(r=>r.blob()).then(b=>{ const url=URL.createObjectURL(b); const a=document.createElement('a'); a.href=url; a.download='esp32mic-log.txt'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),2000); }); }function setOffset(){ const sel=$('sel_offset'); if(!sel) return; const h=Number(sel.value); if(!Number.isFinite(h)||h < -12||h > 14) return; setv('time_offset', Math.round(h*60)); }function confirmNetReset(){ const L=T[lang]; if(confirm(L.net_reset_confirm||'Reset Wi-Fi settings and reboot?')){ act('network_reset'); } }const POLL_FAST_MS=3000, POLL_SLOW_MS=15000; let pollBusy=false,pollPromise=null,lastSlowPoll=0,lastLogPoll=0;const pollErrors={};function logsOpen(){ const d=document.getElementById('logssec'); return !!(d&&d.open); }function loadAll(force){
  force=force===true;if(pollBusy)return force?pollPromise.then(()=>loadAll(true)):pollPromise;
  pollBusy=true;const now=Date.now(),jobs=[['status',loadStatus],['audio',loadAudio]];
  if(force||now-lastSlowPoll>=POLL_SLOW_MS){lastSlowPoll=now;jobs.push(['perf',loadPerf],['thermal',loadTherm],['wifi',loadWifiAp]);}

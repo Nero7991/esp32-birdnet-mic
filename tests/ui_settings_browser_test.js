@@ -31,6 +31,40 @@ const {chromium}=require('playwright-core');
   assert.match(await page.locator('#profile').textContent(),/Balanced/);
   assert.equal(await page.locator('#s1_stream').textContent(),'YES');
   await page.evaluate(()=>openSection('audiosec'));
+  // Returning to the saved value clears markers, the discard button and unload warning.
+  let initialWrites=writes.length;
+  const dirty=async id=>page.locator('#'+id).evaluate(e=>e.classList.contains('dirty'));
+  for(const value of ['2.75','', '1.51']){
+   await page.locator('#in_gain').fill(value);assert(await dirty('in_gain'));
+   await page.locator('#in_gain').fill('1.5');assert(!await dirty('in_gain')); // 1.50 == 1.5
+  }
+  assert(await page.locator('#audiosec>.discard').isHidden());
+  await page.evaluate(()=>openSection('audioadvanced'));
+  for(const [id,changed,original] of [['sel_buf','2048','512'],['sel_mic_format','1','0'],['sel_hp','off','on']]){
+   await page.selectOption('#'+id,changed);assert(await dirty(id));
+   await page.selectOption('#'+id,original);assert(!await dirty(id));
+  }
+  await page.evaluate(()=>openSection('networksec'));
+  const host=await page.locator('#in_mdns_host').inputValue();
+  await page.locator('#in_mdns_host').fill('changed-host');assert(await dirty('in_mdns_host'));
+  await page.locator('#in_mdns_host').fill(' '+host+' ');assert(!await dirty('in_mdns_host'));
+  await page.evaluate(()=>openSection('thermalsec'));
+  const autoResume=await page.locator('#sel_oh_auto').inputValue();
+  await page.selectOption('#sel_oh_auto',autoResume==='on'?'off':'on');assert(await dirty('sel_oh_auto'));
+  await page.selectOption('#sel_oh_auto',autoResume);assert(!await dirty('sel_oh_auto'));
+  await page.evaluate(()=>openSection('timesec'));
+  const time=await page.locator('#in_stream_start').inputValue();
+  await page.locator('#in_stream_start').fill('07:15');assert(await dirty('in_stream_start'));
+  await page.locator('#in_stream_start').fill(time);assert(!await dirty('in_stream_start'));
+  await page.evaluate(()=>openSection('mqttsec'));
+  await page.locator('#in_mqtt_pass').fill(' draft ');assert(await dirty('in_mqtt_pass'));
+  await page.locator('#in_mqtt_pass').fill('');assert(!await dirty('in_mqtt_pass'));
+  await page.locator('#mqtt_clear_password').check();assert(await dirty('mqtt_clear_password'));
+  await page.locator('#mqtt_clear_password').uncheck();assert(!await dirty('mqtt_clear_password'));
+  assert.equal(writes.length,initialWrites);
+  assert.equal(await page.evaluate(()=>Object.keys(edits).length),0);
+  await page.evaluate(()=>refreshAll());assert.equal(await page.evaluate(()=>Object.keys(edits).length),0);
+  await page.evaluate(()=>openSection('audiosec'));
   await page.locator('#in_gain').fill('2.75');
   await page.evaluate(async()=>{const now=Date.now;Date.now=()=>now()+120000;try{await refreshAll();}finally{Date.now=now;}});
   assert.equal(await page.locator('#in_gain').inputValue(),'2.75');
@@ -53,6 +87,25 @@ const {chromium}=require('playwright-core');
   assert.equal(await page.locator('#in_gain').inputValue(),'4');
   await page.waitForFunction(()=>!document.querySelector('#audiosec>.discard').disabled);
   await page.locator('#audiosec>.discard').click();await page.waitForFunction(()=>document.querySelector('#in_gain').value==='3.00');
+  // A revert while a save is pending stays intact when the saved baseline changes.
+  hold=new Promise(r=>release=r);await page.locator('#in_gain').fill('5');await page.locator('#btn_gain_set').click();
+  await page.waitForFunction(()=>document.querySelector('#audiosec>.feedback').textContent==='Saving…');
+  await page.locator('#in_gain').fill('3');assert(!await dirty('in_gain'));release();
+  await page.waitForFunction(()=>document.querySelector('#audiosec>.feedback').textContent==='Saved.'&&!sectionBusy.has('audiosec'));
+  assert.equal(await page.locator('#in_gain').inputValue(),'3');assert(await dirty('in_gain'));
+  await page.locator('#in_gain').fill('5');assert(!await dirty('in_gain'));
+  // A newer edit equal to the successfully saved value becomes clean after confirmation.
+  hold=new Promise(r=>release=r);await page.locator('#in_gain').fill('7');await page.locator('#btn_gain_set').click();
+  await page.waitForFunction(()=>document.querySelector('#audiosec>.feedback').textContent==='Saving…');
+  await page.locator('#in_gain').fill('8');await page.locator('#in_gain').fill('7');release();
+  await page.waitForFunction(()=>!sectionBusy.has('audiosec')&&document.querySelector('#audiosec>.feedback').textContent==='Saved.');
+  assert.equal(await page.locator('#in_gain').inputValue(),'7');assert(!await dirty('in_gain'));
+  // The next poll also removes a failed-save draft when it equals the confirmed state.
+  failure='network';await page.locator('#in_gain').fill('9');await page.locator('#btn_gain_set').click();
+  await page.waitForFunction(()=>!sectionBusy.has('audiosec')&&document.querySelector('#audiosec>.feedback').textContent.includes('Could not confirm'));
+  await page.locator('#in_gain').fill('7');assert(!await dirty('in_gain'));
+  await page.evaluate(()=>refreshAll());assert(!await dirty('in_gain'));
+  assert.equal(await page.evaluate(()=>Object.keys(edits).length),0);failure='';
   assert.equal(await page.locator('#sel_cpu option[value="120"]').count(),0);
   // One request saves the whole cross-midnight window.
   await page.evaluate(()=>openSection('timesec'));await page.selectOption('#sel_stream_sched_en','on');
@@ -90,7 +143,7 @@ const {chromium}=require('playwright-core');
   await page.evaluate(()=>openSection('recoverysec'));count=writes.length;await page.locator('#b_defaults').click();assert.equal(writes.length,count);
   acceptDialog=true;await page.locator('#b_defaults').click();await page.waitForFunction(()=>document.querySelector('#ovr').style.display==='flex');
   assert.equal(writes.at(-1).path,'/api/action/factory_reset');
-  assert.deepEqual(errors,[]);await page.close();console.log((packed?'Embedded':'Source')+' UI: persistent drafts, rejected/offline/concurrent saves, discard, grouped schedule/MQTT, password semantics, reset confirmation, state reasons and keyboard help passed');
+  assert.deepEqual(errors,[]);await page.close();console.log((packed?'Embedded':'Source')+' UI: returned/equivalent values, pending-save reverts, confirmed baselines, persistent drafts, rejected/offline/concurrent saves, discard, grouped schedule/MQTT, password semantics, reset confirmation, state reasons and keyboard help passed');
  }
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1});

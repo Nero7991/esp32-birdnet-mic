@@ -7,20 +7,28 @@ for (const match of html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)) {
   new vm.Script(match[1]);
 }
 const nodes = Object.fromEntries(['health_capture', 'health_stalls', 'health_failures', 'health_clients', 'health_buffer', 'health_stop', 'health_audio_load', 'health_dma', 'level', 'mqtt_discovery_status', 'mqtt_err', 'mqtt_conn', 'sel_time_zone_mode', 'row_manual_time_offset', 'row_custom_time_zone', 'sel_offset', 'btn_offset_set', 'row_offset_hint'].map(id => [id, {style: {}}]));
-const context = vm.createContext({$: id => nodes[id] || null, Date, edits: {}, toggleDirty() {},
+const context = vm.createContext({$: id => nodes[id] || null, Date, edits: {}, locks: {}, confirmedValues: {}, dirtyEls: {}, savingKeys: new Set(), pendingSyncKeys: new Set(), toggleDirty() {},
   T: {en: {clip_bad: 'Clipping', clip_warn: 'Near clipping', clip_ok: 'OK'}}, lang: 'en'});
-function loadFunction(name, next) {
+// Compile exactly one function; neighboring dialog initialization needs a real DOM.
+function loadFunction(name) {
   const start = html.indexOf('function ' + name + '(');
-  const end = html.indexOf('function ' + next + '(', start);
-  assert(start >= 0 && end > start);
-  vm.runInContext(html.slice(start, end), context);
+  assert(start >= 0);
+  for (let end = html.indexOf('}', start); end >= 0; end = html.indexOf('}', end + 1)) {
+    let script;
+    try { script = new vm.Script(html.slice(start, end + 1)); }
+    catch (error) { if (error instanceof SyntaxError) continue; throw error; }
+    script.runInContext(context);
+    return;
+  }
+  assert.fail('Incomplete function: ' + name);
 }
-loadFunction('renderAudioLevel', 'updateAudioDiagnosticsUI');
-loadFunction('updateAudioDiagnosticsUI', 'updateStreamHealth');
-loadFunction('updateStreamHealth', 'loadAudio');
-loadFunction('loadMqtt', 'updateTimeZoneVisibility');
-loadFunction('syncInput', 'trackEdit');
-loadFunction('updateTimeZoneVisibility', 'openSection');
+loadFunction('renderAudioLevel');
+loadFunction('updateAudioDiagnosticsUI');
+loadFunction('updateMicrophoneSignal');
+loadFunction('updateStreamHealth');
+loadFunction('loadMqtt');
+for(const name of ['fieldValue','differsFromSaved','reconcileEdit','clearDirty','syncInput'])loadFunction(name);
+loadFunction('updateTimeZoneVisibility');
 nodes.sel_time_zone_mode.value = '1';
 context.updateTimeZoneVisibility();
 assert.equal(nodes.row_manual_time_offset.style.display, 'none');

@@ -76,10 +76,14 @@ int main() {
                             '-I', str(ROOT / 'esp32-birdnet-mic'), str(cpp), '-o', str(binary)], check=True)
             subprocess.run([str(binary)], check=True, timeout=10)
 
-    def native(self, name, transport=False):
+    def native(self, name, transport=False, c5=False):
         with tempfile.TemporaryDirectory() as temp:
+            # Exercise sdkconfig inclusion, as in BrowserAudio.cpp on the board.
+            if c5:
+                (pathlib.Path(temp) / 'sdkconfig.h').write_text('#define CONFIG_IDF_TARGET_ESP32C5 1\n')
             command = ['g++', '-std=c++17', '-O2', '-Wall', '-Wextra', '-Werror', '-pthread',
                        '-fsanitize=undefined', '-fno-sanitize-recover=all',
+                       '-I', temp,
                        '-I', str(ROOT / 'tests/browser_audio_stubs'),
                        '-I', str(ROOT / 'esp32-birdnet-mic'), str(ROOT / 'tests' / name)]
             if transport:
@@ -93,6 +97,12 @@ int main() {
 
     def test_actual_http_transport(self):
         self.native('browser_audio_transport_test.cpp', transport=True)
+
+    def test_c5_queue_wrap_overflow_and_cross_task_pcm(self):
+        self.native('microphone_preview_test.cpp', c5=True)
+
+    def test_c5_actual_http_transport_and_slow_listener(self):
+        self.native('browser_audio_transport_test.cpp', transport=True, c5=True)
 
     def test_browser_playback_lifecycle(self):
         subprocess.run(['node', str(ROOT / 'tests/browser_audio_ui_test.js')], check=True, timeout=15)

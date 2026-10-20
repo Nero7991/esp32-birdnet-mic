@@ -14,6 +14,7 @@
 #include "AudioDiagnostics.h"
 #include "MicrophoneSignal.h"
 #include "BrowserAudio.h"
+#include "MicrophoneProfiles.h"
 #include "WifiAp.h"
 #include "ThermalRecovery.h"
 #include <algorithm>
@@ -148,6 +149,10 @@ extern String formatSince(unsigned long eventMs);
 extern bool restartI2S();
 extern bool applyAudioConfig(uint32_t newRate, float newGain, uint16_t newBuffer, uint8_t newShift);
 extern bool applyMicFormatConfig(uint8_t newFormat);
+extern bool applyMicProfileConfig(uint8_t newFormat, bool recommended);
+extern bool getRecommendedMicSettings(uint8_t format, micprofiles::Settings& out);
+extern bool cpuFrequencySupported(uint32_t mhz);
+extern uint16_t maxSupportedCpuFrequencyMhz();
 extern uint16_t maxHighpassCutoffForRate(uint32_t sampleRate);
 extern void saveAudioSettings();
 extern void applyWifiTxPower(bool log);
@@ -1039,6 +1044,7 @@ static void httpThermal() {
     json += "\"current_valid\":" + String(lastTemperatureValid?"true":"false") + ",";
     json += "\"max_c\":" + String(maxTemperature,1) + ",";
     json += "\"cpu_mhz\":" + String(getCpuFrequencyMhz()) + ",";
+    json += "\"cpu_max_mhz\":" + String(maxSupportedCpuFrequencyMhz()) + ",";
     json += "\"protection_enabled\":" + String(overheatProtectionEnabled?"true":"false") + ",";
     json += "\"shutdown_c\":" + String(overheatShutdownC,0) + ",";
     json += "\"latched\":" + String(overheatLockoutActive?"true":"false") + ",";
@@ -1384,6 +1390,43 @@ static bool applyAndSaveMicFormat(uint8_t newFormat) {
     return false;
 }
 
+static void httpMicProfile() {
+    uint32_t format;
+    micprofiles::Settings profile;
+    if (!parseUInt32Strict(web.arg("format"), format) || format > 2 ||
+        !getRecommendedMicSettings(uint8_t(format), profile) ||
+        (format == 2 && !pdmMicSupported())) {
+        apiSendJSON(F("{\"ok\":false,\"error\":\"invalid_value\"}"));
+        return;
+    }
+    String json;
+    json.reserve(480);
+    json = "{\"ok\":true,\"board\":\"" + jsonEscape(String(FW_BOARD_NAME_STR)) +
+        "\",\"mic_format\":" + String(format) + ",\"current_format\":" + String(micFormat) +
+        ",\"sample_rate\":" + String(profile.rate) + ",\"gain\":" + String(profile.gain, 2) +
+        ",\"buffer_size\":" + String(profile.buffer) + ",\"i2s_shift\":" + String(profile.shift) +
+        ",\"hp_enable\":" + String(profile.highpass ? "true" : "false") +
+        ",\"hp_cutoff_hz\":" + String(profile.cutoff) + ",\"cpu_mhz\":" + String(profile.cpu) + "}";
+    apiSendJSON(json);
+}
+
+static void httpSaveMicProfile() {
+    if (!requireMutationAuth()) return;
+    uint32_t format;
+    const String mode = web.arg("settings");
+    if (!parseUInt32Strict(web.arg("format"), format) || format > 2 ||
+        (mode != "recommended" && mode != "keep")) {
+        apiSendJSON(F("{\"ok\":false,\"error\":\"invalid_value\"}"));
+        return;
+    }
+    if (!applyMicProfileConfig(uint8_t(format), mode == "recommended")) {
+        apiSendJSON(F("{\"ok\":false,\"error\":\"i2s_restart_failed\"}"));
+        return;
+    }
+    saveAudioSettings();
+    apiSendJSON(F("{\"ok\":true}"));
+}
+
 // Validate the whole group before changing runtime state or writing preferences.
 static void httpSaveSchedule() {
     if (!requireMutationAuth()) return;
@@ -1521,7 +1564,11 @@ static void httpSet() {
     else if (key == "cpu_freq") {
         handled = true;
         uint32_t v;
-        if (argToUInt(v) && (v == 40 || v == 80 || v == 160)) { cpuFrequencyMhz = (uint8_t)v; setCpuFrequencyMhz(cpuFrequencyMhz); saveAudioSettings(); applied = true; }
+        if (argToUInt(v) && cpuFrequencySupported(v) && setCpuFrequencyMhz(v)) {
+            cpuFrequencyMhz = (uint8_t)v;
+            saveAudioSettings();
+            applied = true;
+        }
     }
     else if (key == "hp_enable") {
         handled = true;
@@ -1799,6 +1846,7 @@ void webui_begin() {
     web.on("/api/ota_status", HTTP_GET, httpOtaStatus);
     web.on("/api/status", httpStatus);
     web.on("/api/audio_status", httpAudioStatus);
+    web.on("/api/microphone_profile", HTTP_GET, httpMicProfile);
     web.on("/api/perf_status", httpPerfStatus);
     web.on("/api/thermal", httpThermal);
     web.on("/api/thermal/clear", HTTP_POST, httpThermalClear);
@@ -1817,6 +1865,7 @@ void webui_begin() {
     web.on("/api/action/reboot", HTTP_POST, httpActionReboot);
     web.on("/api/action/factory_reset", HTTP_POST, httpActionFactoryReset);
     web.on("/api/set", HTTP_POST, httpSet);
+    web.on("/api/settings/microphone", HTTP_POST, httpSaveMicProfile);
     web.on("/api/settings/schedule", HTTP_POST, httpSaveSchedule);
     web.on("/api/settings/mqtt", HTTP_POST, httpSaveMqtt);
     static const char* headerKeys[] = { UI_MUTATION_HEADER };

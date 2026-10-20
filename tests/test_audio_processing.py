@@ -40,6 +40,57 @@ int main() {
 }
 ''')
 
+    def test_actual_c5_reserve_selection_boot_reconfigure_and_exhaustion(self):
+        source = (ROOT / 'esp32-birdnet-mic/esp32-birdnet-mic.ino').read_text()
+        start = source.index('    const size_t requested =', source.index('bool startAudioProducer() {'))
+        end = source.index('    audioRingBuffer = xRingbufferCreate', start)
+        for c5 in (False, True):
+            with self.subTest(c5=c5):
+                self.native(('#define CONFIG_IDF_TARGET_ESP32C5 1\n' if c5 else '') + r'''
+#include "AudioReserve.h"
+#include <cassert>
+#include <cstdint>
+#include <string>
+constexpr uint32_t MALLOC_CAP_INTERNAL=1, MALLOC_CAP_8BIT=2;
+size_t heapFreeTest=0, heapLargestTest=0, audioRingBufferCapacityBytes=0;
+int currentBufferSize=512;
+size_t computeAudioRingBufferCapacity(){return 65536;}
+size_t heap_caps_get_free_size(uint32_t){return heapFreeTest;}
+size_t heap_caps_get_largest_free_block(uint32_t){return heapLargestTest;}
+std::string String(uint32_t n){return std::to_string(n);}
+void simplePrintln(const std::string&){}
+size_t choose(){
+''' + source[start:end] + r'''
+ return audioRingBufferCapacityBytes;
+}
+int main(){
+ heapFreeTest=215*1024; heapLargestTest=150*1024;
+ assert(choose()==65536);
+ heapFreeTest=104*1024; heapLargestTest=80*1024;
+ assert(choose()==16384); // C5 boot after freeing 12 KiB of static RAM.
+ heapFreeTest=101*1024;
+#if defined(CONFIG_IDF_TARGET_ESP32C5)
+ assert(choose()==16384); // Original boot-loop report, I2S and PDM share this path.
+ heapFreeTest=90*1024;
+ assert(choose()==16384); // Reconfiguration with an existing network client.
+ const size_t required=16384+audioreserve::kC5MinimumHeapMargin+
+     audioreserve::kProducerStackBytes+audioreserve::kAllocationOverhead;
+ heapFreeTest=required;
+ assert(choose()==16384);
+ heapFreeTest=required-1;
+ assert(choose()==0); // A contiguous block alone cannot authorize capture.
+ heapFreeTest=101*1024; heapLargestTest=16384+audioreserve::kAllocationOverhead-1;
+ assert(choose()==0); // Fragmentation must still reject the allocation.
+ heapLargestTest=80*1024; currentBufferSize=8192;
+ assert(choose()==0); // Never shrink below four complete capture chunks.
+#else
+ assert(choose()==0); // C3/S3/C6 retain the existing 80 KiB policy.
+#endif
+ heapFreeTest=0; heapLargestTest=0;
+ assert(choose()==0);
+}
+''')
+
     def test_word_rate_startup_overruns_retry_and_reset(self):
         self.native(r'''
 #include "PdmCapture.h"

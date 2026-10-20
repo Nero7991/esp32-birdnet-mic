@@ -7,8 +7,9 @@ const ids=['sel_mic_format','opt_pdm','in_rate','btn_rate_set','in_shift','btn_s
 const nodes=Object.fromEntries(ids.map(id=>[id,{value:'0'}]));
 nodes.sel_mic_format.selectedOptions=[{textContent:'Microphone model'}];
 const edits={},locks={};
-const c=vm.createContext({document:{getElementById:id=>nodes[id]},Date,edits,locks,
+const c=vm.createContext({document:{getElementById:id=>nodes[id]},Date,edits,locks,confirmedValues:{},dirtyEls:{mic_format:[nodes.sel_mic_format]},savingKeys:new Set(),pendingSyncKeys:new Set(),
  T:{en:{help_gain:'Original I2S gain help'}},lang:'en',toggleDirty:()=>{}});
+vm.runInContext(html.slice(html.indexOf('function fieldValue('),html.indexOf('function trackEdit('))+html.slice(html.indexOf('function clearDirty('),html.indexOf('function toggleDirty(')),c);
 const a=html.indexOf('function renderMicFormat('),b=html.indexOf('function loadAudio(',a);
 vm.runInContext(html.slice(a,b),c);
 c.renderMicFormat({mic_format:2,pdm_supported:true});

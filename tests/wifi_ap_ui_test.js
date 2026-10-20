@@ -36,6 +36,9 @@ const {chromium} = require('playwright-core');
     assert((await page.locator('#wifi_ap_current').textContent()).includes('Test <network>'));
     await page.selectOption('#wifi_ap_mode', 'locked');
     assert.equal(await page.locator('input[type=radio]:checked').inputValue(), state.bssid);
+    await page.selectOption('#wifi_ap_mode', 'auto');
+    assert.equal(await page.locator('#wifi_ap_save').isDisabled(), true); // Back to saved mode.
+    await page.selectOption('#wifi_ap_mode', 'locked');
     await page.click('#wifi_ap_scan');
     await page.waitForFunction(() => !wifiApBusy);
     assert.equal(scans, 1);
@@ -47,6 +50,10 @@ const {chromium} = require('playwright-core');
     await page.waitForFunction(() => !wifiApBusy);
     assert.deepEqual(saves, ['AA:BB:CC:44:55:66']);
     assert((await page.locator('#wifi_ap_message').textContent()).includes('Reconnecting'));
+    await page.locator('input[value="AA:BB:CC:11:22:33"]').check();
+    assert.equal(await page.locator('#wifi_ap_save').isDisabled(), false);
+    await page.locator('input[value="AA:BB:CC:44:55:66"]').check();
+    assert.equal(await page.locator('#wifi_ap_save').isDisabled(), true); // Back to saved AP.
     state.bssid = state.locked_bssid;
     await page.evaluate(() => loadWifiAp());
     assert.equal(await page.locator('#wifi_ap_message').textContent(), 'Saved. Connected successfully.');
