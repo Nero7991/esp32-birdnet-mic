@@ -42,6 +42,15 @@ assert(nodes.thermal_notice_detail.textContent.includes('sensor unavailable'));
 assert.equal(nodes.btn_therm_clear.disabled, true);
 context.renderThermalRecovery({...state, emergency: true, auto_resume_pending: false});
 assert(nodes.thermal_notice_title.textContent.includes('Emergency'));
+context.renderThermalRecovery({...state, protection_enabled:false, sensor_fault:true,
+  emergency:true, auto_resume_pending:false, can_acknowledge:true});
+assert.equal(nodes.btn_therm_clear.disabled,false);
+assert.equal(nodes.btn_thermal_notice_ack.disabled,false);
+assert.equal(nodes.therm_status.textContent,'Protection disabled');
+assert(nodes.thermal_notice_detail.textContent.includes('without waiting for cooling'));
+assert(!nodes.thermal_notice_detail.textContent.includes('Recovery remains blocked'));
+context.renderThermalRecovery({...state, sensor_fault:true, can_acknowledge:false});
+assert.equal(nodes.btn_therm_clear.disabled,true);
 context.renderThermalRecovery({...state, schedule_allowed: false});
 assert(nodes.thermal_notice_detail.textContent.includes('outside the allowed schedule'));
 context.renderThermalRecovery({...state, latched_persist: false, auto_resume_pending: false,

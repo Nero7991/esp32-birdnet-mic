@@ -708,6 +708,7 @@ Current validation ranges include `sampleRate=8000..192000`, `bufferSize=256..81
 - If audio is noisy while Wi-Fi is otherwise stable, try lowering Wi-Fi TX power before changing audio settings.
 - Keep I2S wires short and away from the ESP32 RF area.
 - Use shielded cable for longer microphone runs.
+- With thermal protection explicitly OFF, acknowledge a saved shutdown immediately, even if the sensor is unavailable. OFF alone does not restore streaming; acknowledgement is a separate action. With protection ON, normal cooling is still required.
 - OTA pauses capture and I2S/PDM clocks until reboot; a failed update restores capture, respecting thermal shutdown and stream schedules.
 - Temperature monitoring checks driver errors and switches between supported sensor ranges; readings remain approximate chip temperatures.
 - Thermal protection disables RTSP and capture at the configured limit. Optional automatic recovery waits five continuous minutes at least 10 C below the limit. The third shutdown in a rolling 24 hours, an emergency shutdown (limit + 10 C), or a legacy latch requires manual acknowledgement after cooling. History and blocks survive reboot; without a valid clock, unknown event ages are conservatively counted for 24 hours after boot. Sensor errors reset cooling; manual server stops cancel pending automatic recovery. Recovery respects the stream schedule. The warning stays visible until acknowledged, and last-shutdown details remain available.

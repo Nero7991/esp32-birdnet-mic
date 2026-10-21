@@ -122,8 +122,12 @@ public:
 
     // Acknowledging an active shutdown resets the retry series. Acknowledging
     // the warning after automatic recovery preserves the rolling trip count.
-    bool acknowledge(uint32_t nowMs) {
-        if (state.latched && !cooled(nowMs)) return false;
+    bool canAcknowledge(uint32_t nowMs, bool protection = true) const {
+        return !state.latched || !protection || cooled(nowMs);
+    }
+
+    bool acknowledge(uint32_t nowMs, bool protection = true) {
+        if (!canAcknowledge(nowMs, protection)) return false;
         if (state.latched) {
             state.count = state.latched = state.manualBlocked = state.resumePending = state.emergency = 0;
             for (uint8_t i = 0; i < 3; ++i) state.tripEpoch[i] = 0;

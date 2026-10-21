@@ -118,4 +118,18 @@ int main() {
     for (uint32_t t = 0; t <= ThermalRecovery::COOL_MS; t += 5000) rebooted.sample(t, true, 65);
     assert(rebooted.acknowledge(300000)); // Migrated emergency/third-trip latch unlocks after cooling.
     assert(!rebooted.state.latched && rebooted.state.count == 0);
+    // Explicit protection OFF permits manual recovery even with no valid sensor.
+    p = ThermalRecovery{};
+    p.trip(epoch, 0, 80, true, true);
+    p.state.count = 3;
+    p.state.manualBlocked = 1;
+    p.sample(1, false, NAN);
+    assert(!p.canAcknowledge(1, true));
+    assert(!p.acknowledge(1, true));
+    assert(p.canAcknowledge(1, false));
+    assert(!p.canResume(1, true, false, true)); // OFF alone never resumes capture.
+    assert(p.acknowledge(1, false));
+    assert(!p.state.latched && !p.state.notice && !p.state.emergency && p.state.count == 0);
+    p.trip(epoch, 1, 80, false, true);
+    assert(!p.canAcknowledge(2, true)); // Re-enabling protection restores the cooling gate.
 }

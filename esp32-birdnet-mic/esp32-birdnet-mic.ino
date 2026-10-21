@@ -1854,7 +1854,7 @@ bool acknowledgeThermalShutdown() {
     if (otaInProgress) return false;
     bool wasLatched = overheatLatched;
     const ThermalRecoveryState saved = thermalRecovery.state;
-    if (!thermalRecovery.acknowledge(millis())) return false;
+    if (!thermalRecovery.acknowledge(millis(), overheatProtectionEnabled)) return false;
     overheatLatched = false;
     if (wasLatched && !setup_i2s_driver()) {
         thermalRecovery.state = saved;

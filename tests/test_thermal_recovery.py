@@ -158,6 +158,26 @@ int main() {
     assert(!acknowledgeThermalShutdown() && overheatLatched && flash.latched);
     restartOk = true; cooldown();
     assert(acknowledgeThermalShutdown() && captureRunning && !overheatLatched);
+    sample(90); sample(NAN);
+    assert(overheatLatched && overheatSensorFault && !acknowledgeThermalShutdown());
+    overheatProtectionEnabled = false;
+    sample(NAN);
+    assert(overheatLatched && !captureRunning); // OFF itself does not clear the latch.
+    otaInProgress = true;
+    assert(!acknowledgeThermalShutdown()); // An active update still owns capture.
+    otaInProgress = false;
+    restartOk = false;
+    assert(!acknowledgeThermalShutdown() && flash.latched && !captureRunning);
+    restartOk = true;
+    auto lastReason = overheatLastReason;
+    assert(acknowledgeThermalShutdown() && captureRunning && rtspServerEnabled);
+    assert(!flash.latched && !flash.notice && flash.count == 0);
+    assert(overheatLastReason == lastReason); // Keep diagnosis after manual override.
+    overheatProtectionEnabled = true;
+    sample(90);
+    assert(overheatLatched && !acknowledgeThermalShutdown());
+    overheatProtectionEnabled = false; scheduleAllowed = false;
+    assert(acknowledgeThermalShutdown() && !rtspServerEnabled);
 }
 '''
         self.compile_run(code)

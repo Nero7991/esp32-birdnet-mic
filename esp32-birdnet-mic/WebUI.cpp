@@ -1078,7 +1078,7 @@ static void httpThermal() {
     json += "\"trips_24h\":" + String(thermalRecovery.state.count) + ",";
     json += "\"cool_limit_c\":" + String(overheatLatched ? thermalRecovery.state.coolLimitC : overheatShutdownC - ThermalRecovery::COOL_MARGIN_C, 1) + ",";
     json += "\"cool_remaining_sec\":" + String(thermalRecovery.remainingSec(millis())) + ",";
-    json += "\"can_acknowledge\":" + String((thermalRecovery.state.notice && (!overheatLatched || thermalRecovery.cooled(millis())))?"true":"false") + ",";
+    json += "\"can_acknowledge\":" + String((thermalRecovery.state.notice && thermalRecovery.canAcknowledge(millis(), overheatProtectionEnabled))?"true":"false") + ",";
     json += "\"schedule_allowed\":" + String(isStreamScheduleAllowedNow(nullptr)?"true":"false") + ",";
     json += "\"manual_restart\":" + String(manualRequired?"true":"false");
     json += "}";
@@ -1613,7 +1613,7 @@ static void httpSet() {
     else if (key == "oh_enable") {
         handled = true;
         String v = web.arg("value");
-        if (v == "on" || v == "off") { overheatProtectionEnabled = (v == "on"); overheatConsecutiveSamples = 0; thermalRecovery.resetCooling(); if (!overheatProtectionEnabled) { overheatLockoutActive = false; } saveAudioSettings(); applied = true; }
+        if (v == "on" || v == "off") { overheatProtectionEnabled = (v == "on"); overheatConsecutiveSamples = 0; thermalRecovery.resetCooling(); overheatLockoutActive = overheatLatched; saveAudioSettings(); applied = true; }
     }
     else if (key == "oh_auto") {
         handled = true;

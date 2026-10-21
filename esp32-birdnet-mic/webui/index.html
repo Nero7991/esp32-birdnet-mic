@@ -1364,16 +1364,16 @@ function renderThermalRecovery(j){
  const limit=Number(j.cool_limit_c).toFixed(0), seconds=Math.max(0,Number(j.cool_remaining_sec)||0);
  const time=Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0');
  let title='Thermal shutdown recorded', message='', status='Ready';
- if(j.sensor_fault){ status='Sensor unavailable — recovery blocked'; }
+ if(!j.protection_enabled){ status='Protection disabled'; }
+ else if(j.sensor_fault){ status='Sensor unavailable — recovery blocked'; }
  else if(latched && j.auto_resume_pending){ status='Waiting for cooling'; }
  else if(latched){ status='Manual acknowledgement required'; }
- else if(!j.protection_enabled){ status='Protection disabled'; }
  if(latched){
    title=j.emergency?'Emergency thermal shutdown — acknowledgement required':j.manual_blocked?'Repeated overheating — automatic recovery blocked':'Thermal shutdown — stream paused';
-   message=j.sensor_fault?'Temperature sensor unavailable. Recovery remains blocked.':
+   message=!j.protection_enabled?'Thermal protection is off. Acknowledge to restore operation without waiting for cooling.':j.sensor_fault?'Temperature sensor unavailable. Recovery remains blocked.':
      'Recovery requires 5 continuous minutes at or below '+limit+' °C. Cooling time remaining: '+time+'.';
    if(j.auto_resume_pending){ message+=' The stream will resume automatically after cooling during the allowed schedule.'; if(!j.schedule_allowed) message+=' Currently outside the allowed schedule.'; }
-   else { message+=' Check cooling, then acknowledge to restore operation.'; }
+   else if(j.protection_enabled){ message+=' Check cooling, then acknowledge to restore operation.'; }
  } else if(j.auto_resumed){ title='Thermal shutdown — operation automatically restored'; message='The device cooled down and operation resumed. Check cooling. This warning remains until acknowledged.'; }
  else { message='Check cooling. This warning remains until acknowledged.'; }
  if(j.last_trip_c>0) message+=' Last shutdown: '+Number(j.last_trip_c).toFixed(1)+' °C.';
