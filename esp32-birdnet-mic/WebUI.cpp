@@ -150,6 +150,10 @@ extern bool restartI2S();
 extern bool applyAudioConfig(uint32_t newRate, float newGain, uint16_t newBuffer, uint8_t newShift);
 extern bool applyMicFormatConfig(uint8_t newFormat);
 extern bool applyMicProfileConfig(uint8_t newFormat, bool recommended);
+extern uint8_t s3BoardVariant;
+extern bool s3BoardSelectionSupported();
+extern bool builtinMicSelected();
+extern bool applyS3BoardConfig(uint8_t variant);
 extern bool getRecommendedMicSettings(uint8_t format, micprofiles::Settings& out);
 extern bool cpuFrequencySupported(uint32_t mhz);
 extern uint16_t maxSupportedCpuFrequencyMhz();
@@ -972,6 +976,9 @@ static void httpAudioStatus() {
     json += "\"audio_dsp\":\"integer\",";
     json += "\"i2s_shift\":" + String(i2sShiftBits) + ",";
     json += "\"mic_format\":" + String(micFormat) + ",";
+    json += "\"s3_board_supported\":" + String(s3BoardSelectionSupported() ? "true" : "false") + ",";
+    json += "\"s3_board\":" + String(s3BoardVariant) + ",";
+    json += "\"builtin_mic\":" + String(builtinMicSelected() ? "true" : "false") + ",";
     json += "\"pdm_supported\":" + String(pdmMicSupported() ? "true" : "false") + ",";
     json += "\"pdm_decoder\":\"" + String(pdmDecoderName()) + "\",";
     json += "\"pdm_clock_hz\":" + String(micFormat == 2 ? 3072000 : 0) + ",";
@@ -1427,6 +1434,21 @@ static void httpSaveMicProfile() {
     apiSendJSON(F("{\"ok\":true}"));
 }
 
+static void httpSaveS3Board() {
+    if (!requireMutationAuth()) return;
+    uint32_t variant;
+    if (!s3BoardSelectionSupported() || !parseUInt32Strict(web.arg("variant"), variant) || variant > 2) {
+        apiSendJSON(F("{\"ok\":false,\"error\":\"invalid_value\"}"));
+        return;
+    }
+    if (!applyS3BoardConfig(uint8_t(variant))) {
+        apiSendJSON(F("{\"ok\":false,\"error\":\"i2s_restart_failed\"}"));
+        return;
+    }
+    saveAudioSettings();
+    apiSendJSON(F("{\"ok\":true}"));
+}
+
 // Validate the whole group before changing runtime state or writing preferences.
 static void httpSaveSchedule() {
     if (!requireMutationAuth()) return;
@@ -1866,6 +1888,7 @@ void webui_begin() {
     web.on("/api/action/factory_reset", HTTP_POST, httpActionFactoryReset);
     web.on("/api/set", HTTP_POST, httpSet);
     web.on("/api/settings/microphone", HTTP_POST, httpSaveMicProfile);
+    web.on("/api/settings/s3_board", HTTP_POST, httpSaveS3Board);
     web.on("/api/settings/schedule", HTTP_POST, httpSaveSchedule);
     web.on("/api/settings/mqtt", HTTP_POST, httpSaveMqtt);
     static const char* headerKeys[] = { UI_MUTATION_HEADER };

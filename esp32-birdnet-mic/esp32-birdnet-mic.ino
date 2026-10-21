@@ -25,6 +25,7 @@
 #include "freertos/ringbuf.h"
 #include "WebUI.h"
 #include "MicrophoneProfiles.h"
+#include "S3Boards.h"
 #include "TimeZoneSchedule.h"
 #include "DiscoveryProgress.h"
 #include "MqttDiscovery.h"
@@ -69,7 +70,7 @@ static constexpr uint32_t PDM_SAMPLE_RATE = 48000;
 static constexpr uint32_t PDM_CLOCK_HZ = PDM_SAMPLE_RATE * 64;
 
 // ================== SETTINGS (ESP32 RTSP Mic for BirdNET-Go / BirdNET-Pi) ==================
-#define FW_VERSION "1.31"
+#define FW_VERSION "1.32"
 // Expose FW version as a global C string for WebUI/API
 const char* FW_VERSION_STR = FW_VERSION;
 // Build timestamp for diagnostics (compile time)
@@ -258,6 +259,27 @@ struct ClientSession {
     }
 };
 
+// Runtime microphone wiring selection within the shared S3 image.
+uint8_t s3BoardVariant = s3boards::External;
+bool s3BoardSelectionSupported() {
+#if defined(ARDUINO_XIAO_ESP32S3)
+    return true;
+#else
+    return false;
+#endif
+}
+bool builtinMicSelected() {
+    return s3BoardSelectionSupported() && s3boards::builtin(s3BoardVariant);
+}
+bool micBoardFormatAllowed(uint8_t format) {
+    return !builtinMicSelected() || format == 2;
+}
+void updateS3BoardIdentity() {
+    if (!s3BoardSelectionSupported()) return;
+    FW_BOARD_ID_STR = s3boards::id(s3BoardVariant);
+    FW_BOARD_NAME_STR = s3boards::name(s3BoardVariant);
+}
+
 bool getRecommendedMicSettings(uint8_t format, micprofiles::Settings& out) {
 #if defined(ARDUINO_XIAO_ESP32C3)
     constexpr auto board = micprofiles::C3;
@@ -270,7 +292,10 @@ bool getRecommendedMicSettings(uint8_t format, micprofiles::Settings& out) {
 #else
     constexpr auto board = micprofiles::Unknown;
 #endif
-    return micprofiles::recommended(board, format, out);
+    if (!micBoardFormatAllowed(format) || !micprofiles::recommended(board, format, out)) return false;
+    // Start conservatively with the built-in microphones; tune from the level meter.
+    if (builtinMicSelected()) out.gain = DEFAULT_GAIN_FACTOR;
+    return true;
 }
 
 uint16_t maxSupportedCpuFrequencyMhz() {
@@ -2052,6 +2077,16 @@ void loadAudioSettings() {
     // (1) respect compile-time default 12 on first boot
     i2sShiftBits = audioPrefs.getUChar("shiftBits", i2sShiftBits);
     micFormat = audioPrefs.getUChar("micFormat", DEFAULT_MIC_FORMAT);
+    s3BoardVariant = audioPrefs.getUChar("s3Board", s3boards::External);
+    if (!s3BoardSelectionSupported() || !s3boards::valid(s3BoardVariant)) {
+        if (s3BoardVariant != s3boards::External) settingsRepaired = true;
+        s3BoardVariant = s3boards::External;
+    }
+    updateS3BoardIdentity();
+    if (builtinMicSelected() && micFormat != MIC_FORMAT_PDM) {
+        micFormat = MIC_FORMAT_PDM;
+        settingsRepaired = true;
+    }
     autoRecoveryEnabled = audioPrefs.getBool("autoRecovery", true);
     scheduledResetEnabled = audioPrefs.getBool("schedReset", false);
     resetIntervalHours = audioPrefs.getUInt("resetHours", 24);
@@ -2221,6 +2256,7 @@ void saveAudioSettings() {
     audioPrefs.putUShort("bufferSize", currentBufferSize);
     audioPrefs.putUChar("shiftBits", i2sShiftBits);
     audioPrefs.putUChar("micFormat", micFormat);
+    audioPrefs.putUChar("s3Board", s3BoardVariant);
     audioPrefs.putBool("autoRecovery", autoRecoveryEnabled);
     audioPrefs.putBool("schedReset", scheduledResetEnabled);
     audioPrefs.putUInt("resetHours", resetIntervalHours);
@@ -2338,6 +2374,8 @@ void resetToDefaultSettings() {
     currentBufferSize = DEFAULT_BUFFER_SIZE;
     i2sShiftBits = 12;  // compile-time default respected
     micFormat = DEFAULT_MIC_FORMAT;
+    s3BoardVariant = s3boards::External;
+    updateS3BoardIdentity();
 
     autoRecoveryEnabled = true;
     autoThresholdEnabled = true;
@@ -2443,6 +2481,7 @@ bool applyAudioConfig(uint32_t newRate, float newGain, uint16_t newBuffer, uint8
 // Stop the producer BEFORE changing format/rate: it must not decode old DMA
 // bytes with the new sample width. Roll back the complete dependent state.
 bool applyMicFormatConfig(uint8_t newFormat) {
+    if (!micBoardFormatAllowed(newFormat)) return false;
     if (newFormat > MIC_FORMAT_PDM || (newFormat == MIC_FORMAT_PDM && !pdmMicSupported())) return false;
     if (newFormat == micFormat) return true;
     uint8_t oldFormat = micFormat;
@@ -2467,6 +2506,7 @@ bool applyMicFormatConfig(uint8_t newFormat) {
 // Apply microphone and its optional profile as one capture transaction.
 // The legacy API continues to preserve custom values through applyMicFormatConfig.
 bool applyMicProfileConfig(uint8_t newFormat, bool recommended) {
+    if (!micBoardFormatAllowed(newFormat)) return false;
     if (!recommended) return applyMicFormatConfig(newFormat);
     micprofiles::Settings next;
     if (!getRecommendedMicSettings(newFormat, next) ||
@@ -2501,6 +2541,35 @@ bool applyMicProfileConfig(uint8_t newFormat, bool recommended) {
         simplePrintln("Microphone profile CPU rollback failed.");
     cpuFrequencyMhz = oldCpu;
     if (!restartI2S()) simplePrintln("Microphone profile rollback failed; reboot recommended.");
+    return false;
+}
+
+// Stop capture before changing GPIO routing, even when the format stays PDM.
+// Persist only after success in the authenticated API handler.
+bool applyS3BoardConfig(uint8_t variant) {
+    if (!s3BoardSelectionSupported() || !s3boards::valid(variant)) return false;
+    if (variant == s3BoardVariant) return true;
+    const uint8_t oldVariant = s3BoardVariant, oldFormat = micFormat;
+    const uint32_t oldRate = currentSampleRate, oldMinRate = minAcceptableRate;
+    const uint16_t oldCutoff = highpassCutoffHz;
+    stopAudioProducer();
+    s3BoardVariant = variant;
+    if (builtinMicSelected()) {
+        micFormat = MIC_FORMAT_PDM;
+        currentSampleRate = PDM_SAMPLE_RATE;
+    }
+    highpassCutoffHz = normalizeHighpassCutoff(currentSampleRate, highpassCutoffHz);
+    if (autoThresholdEnabled) minAcceptableRate = computeRecommendedMinRate();
+    if (restartI2S()) {
+        updateS3BoardIdentity();
+        return true;
+    }
+    s3BoardVariant = oldVariant;
+    micFormat = oldFormat;
+    currentSampleRate = oldRate;
+    highpassCutoffHz = oldCutoff;
+    minAcceptableRate = oldMinRate;
+    if (!restartI2S()) simplePrintln("S3 board rollback failed; reboot recommended.");
     return false;
 }
 
@@ -2938,13 +3007,15 @@ bool setup_i2s_driver() {
         config.slot_cfg = I2S_PDM_RX_SLOT_RAW_FMT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO);
 #endif
         config.slot_cfg.slot_mask = I2S_PDM_SLOT_LEFT;
-        config.gpio_cfg.clk = (gpio_num_t)I2S_BCLK_PIN;
-        config.gpio_cfg.din = (gpio_num_t)I2S_DOUT_PIN;
+        config.gpio_cfg.clk = (gpio_num_t)s3boards::clockPin(s3BoardVariant, I2S_BCLK_PIN);
+        config.gpio_cfg.din = (gpio_num_t)s3boards::dataPin(s3BoardVariant, I2S_DOUT_PIN);
         err = i2s_channel_init_pdm_rx_mode(i2s_rx_handle, &config);
         if (err == ESP_OK) err = enableI2sReceiverWithDiagnostics();
         if (err == ESP_OK && startAudioProducer()) {
             simplePrintln(String("PDM ready: 48000 Hz, ") + pdmDecoderName() +
-                          ", CLK=D3, DATA=D2, SEL=GND; WS/MCLK unused.");
+                          ", CLK=GPIO" + String(s3boards::clockPin(s3BoardVariant, I2S_BCLK_PIN)) +
+                          ", DATA=GPIO" + String(s3boards::dataPin(s3BoardVariant, I2S_DOUT_PIN)) +
+                          "; WS/MCLK unused.");
             return true;
         }
         audioDmaCallbackAvailable = false;

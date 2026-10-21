@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.32 - 2026-10-21
+
+- Add **Audio → S3 board** to the shared S3 firmware. XIAO ESP32-S3 with an external microphone remains the default; select XIAO ESP32-S3 Sense or M5Stack AtomS3U for their built-in 48 kHz PDM microphones. Both are **Experimental — needs more testing**.
+- Save board selection across restarts and OTA updates; restore the previous audio configuration if switching fails.
+
 ## 1.31 - 2026-10-20
 
 ### Highlights

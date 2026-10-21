@@ -11,6 +11,7 @@
 </style>
 <style>
 #audio_settings{table-layout:fixed}
+#sel_s3_board{flex-basis:100%;width:100%;max-width:420px;min-width:0}
 #sel_mic_format{width:100%;min-width:0;max-width:360px}
 #sel_time_zone_mode{width:min(100%,320px);max-width:100%}
 #in_time_zone_rule{width:min(100%,420px);max-width:100%}
@@ -173,6 +174,17 @@
 <details id='audiosec' class='card'>
 <summary class='sum'><span><span class='section-title' id='t_audio'>Audio</span><span class='section-note'>Microphone format, signal, gain and packet size</span></span><span class='chev' aria-hidden='true'></span></summary>
 <table id='audio_settings'>
+<tr id='row_s3_board' style='display:none'>
+<td class='k'><label for='sel_s3_board'>S3 board</label></td>
+<td class='v'><div class='field'>
+<select id='sel_s3_board'>
+<option value='0'>XIAO ESP32-S3 / Plus (default)</option>
+<option value='1'>XIAO ESP32-S3 Sense</option>
+<option value='2'>M5Stack AtomS3U</option>
+</select>
+<button id='btn_s3_board_apply' onclick='saveS3Board()'>Apply board</button>
+</div><div class='hint'>Sense / AtomS3U: Experimental — needs more testing. Uses the built-in PDM microphone; no microphone wiring is needed. Default: external microphone. Applying restarts audio and saves the board.</div></td>
+</tr>
 <tr>
 <td class='k'>
 <span>Microphone format</span>
@@ -190,7 +202,7 @@
 </td>
 </tr>
 <tr id='row_mic_format_hint' style='display:none'>
-<td colspan='2'><div class='hint'>Philips I2S is the default for existing installations. Selecting the wrong I2S alignment cannot damage the microphone, but produces bad audio. PDM requires PDM hardware and different wiring: CLK to D3, DATA to D2, SEL to GND; leave D1 (WS) and D7 (MCLK) disconnected. PDM uses 48 kHz and ignores I2S Shift. Switch off power before changing wires.</div></td>
+<td colspan='2'><div class='hint'>Philips I2S is the default for existing installations. Selecting the wrong I2S alignment cannot damage the microphone, but produces bad audio. With the default board option, PDM requires PDM hardware and different wiring: CLK to D3, DATA to D2, SEL to GND; leave D1 (WS) and D7 (MCLK) disconnected. PDM uses 48 kHz and ignores I2S Shift. Switch off power before changing wires.</div></td>
 </tr>
 <tr>
 <td class='k'>
@@ -1268,6 +1280,13 @@ $('health_clients').textContent=(j.rtsp_client_teardowns??0)+' / '+(j.rtsp_clien
 $('health_buffer').textContent=(j.rb_drops??0)+' / '+(j.rb_flushes??0);
 $('health_stop').textContent=j.last_stop_time ? (j.last_stop_stream?'Stream '+j.last_stop_stream:'All streams')+' — '+j.last_stop_reason+' — '+j.last_stop_time+' ('+j.last_stop_age+')' : 'No stop recorded';
 }
+async function saveS3Board(){
+ if(micDialogLoading||micDialogState||sectionBusy.has('audiosec'))return;
+ const variant=Number($('sel_s3_board').value);
+ const keys=['s3_board'];
+ if(variant!==0)keys.push('mic_format','rate','hp_cutoff');
+ await saveValues('/api/settings/s3_board',{variant},keys,'audiosec','Board saved. Audio restarted. Check the signal level and adjust Gain if needed.');
+}
 let micDialogState=null,micDialogLoading=false;
 const micProfileKeys=['mic_format','rate','gain','buffer','shift','hp_enable','hp_cutoff'];
 async function chooseMicSettings(force=false){
@@ -1288,7 +1307,7 @@ async function chooseMicSettings(force=false){
   add('HPF cutoff',a.hp_cutoff_hz+' Hz',p.hp_cutoff_hz+' Hz');
   if(p.cpu_mhz)add('CPU frequency',t.cpu_mhz+' MHz',p.cpu_mhz+' MHz');
   $('mic_dialog_target').textContent=p.board+' · '+label;
-  $('mic_dialog_note').textContent=format===2?'Gain 24 is a starting point. Check the level with Listen and reduce Gain if clipping occurs.':'These are starting values. Use Listen to check the level and adjust Gain for your microphone and location.';
+  $('mic_dialog_note').textContent=format===2?'Gain '+p.gain+' is a starting point. Check the level with Listen and reduce Gain if clipping occurs.':'These are starting values. Use Listen to check the level and adjust Gain for your microphone and location.';
   $('mic_dialog_drafts').textContent=micProfileKeys.concat(p.cpu_mhz?['cpu_freq']:[]).some(k=>edits[k])?'Using recommendations replaces unsaved edits for the settings shown above. Keeping saved values leaves other edits pending.':'';
   micDialogState={format,profile:p};$('mic_dialog').showModal();$('mic_dialog').scrollTop=0;
  }catch(_){micDialogState=null;feedback('audiosec','Could not load microphone recommendations. Check the connection and try again.','bad');}
@@ -1308,12 +1327,24 @@ async function saveMicSettings(mode){
 }
 $('mic_dialog').addEventListener('close',()=>{micDialogState=null;});
 function renderMicFormat(j){
+  const row=document.getElementById('row_s3_board');
+  if(row){
+    row.style.display=j.s3_board_supported===true?'':'none';
+    syncInput(document.getElementById('sel_s3_board'),'s3_board',String(j.s3_board??0));
+  }
+  const builtin=j.builtin_mic===true;
+  const apply=document.getElementById('btn_mic_apply');
+  if(apply)apply.disabled=builtin;
+
   const select=document.getElementById('sel_mic_format');
   const now=Date.now();
-  if(select)syncInput(select,'mic_format',String(j.mic_format));
+  if(select){select.disabled=builtin;syncInput(select,'mic_format',String(j.mic_format));}
   if(select){toggleDirty(select,'mic_format');document.getElementById('mic_format_label').textContent=select.selectedOptions[0]?.textContent||'';}
   const option=document.getElementById('opt_pdm');
-  if(option) option.disabled=j.pdm_supported!==true;
+  if(option){
+    option.disabled=j.pdm_supported!==true;
+    option.textContent=builtin?'Built-in PDM microphone':'PDM microphone (IM73D122)';
+  }
   const pdm=j.mic_format===2;
   const gainHint=document.getElementById('txt_gain_hint');
   if(gainHint) gainHint.textContent=pdm?'Adjust Gain to avoid clipping. PDM produces 16-bit PCM; I2S Shift is unused.':(T[lang]||T.en).help_gain;
@@ -1391,6 +1422,7 @@ window.addEventListener('beforeunload',event=>{if(Object.keys(edits).length||wif
   const help=document.getElementById('h_mic_format');
   const hint=document.getElementById('row_mic_format_hint');
   if(help&&hint){ help.setAttribute('aria-controls',hint.id); help.onclick=()=>{const open=hint.style.display==='none'; hint.style.display=open?'':'none'; help.setAttribute('aria-expanded',String(open));}; }
+  trackEdit(document.getElementById('sel_s3_board'),'s3_board');
   trackEdit(document.getElementById('sel_mic_format'),'mic_format');document.getElementById('sel_mic_format').addEventListener('change',()=>{document.getElementById('mic_format_label').textContent=document.getElementById('sel_mic_format').selectedOptions[0]?.textContent||'';});
 })();
 </script>

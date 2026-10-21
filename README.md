@@ -8,8 +8,14 @@ Turn a **Seeed Studio XIAO ESP32** and a digital microphone into a Wi-Fi microph
 for **BirdNET-Go**, **BirdNET-Pi**, VLC or ffmpeg. Listen in your browser, adjust settings
 and check device health without installing an app.
 
-**Latest firmware: v1.31** · [Latest published release](https://github.com/Sukecz/esp32-birdnet-mic/releases/latest)
+**Latest firmware: v1.32** · [Latest published release](https://github.com/Sukecz/esp32-birdnet-mic/releases/latest)
 · [Web flasher](https://esp32mic.msmeteo.cz) · [Changelog](esp32-birdnet-mic/CHANGELOG.md)
+
+## What's new in 1.32
+
+- **Experimental S3 boards with built-in microphones:** XIAO ESP32-S3 Sense and M5Stack AtomS3U — **needs more testing**.
+- In S3 firmware, open **Audio → S3 board**, select the board and click **Apply board**. The built-in microphone uses 48 kHz PDM.
+- XIAO ESP32-S3 / Plus with an external microphone remains the default. Board selection is saved across restarts and OTA updates.
 
 ## What's new in 1.31
 
@@ -75,6 +81,25 @@ Choose **one ESP32 board and one microphone**, then add the accessories below.
 | XIAO ESP32-C6 | Maintainer's reference board; software PDM conversion | [Seeed Studio](https://www.seeedstudio.com/Seeed-Studio-XIAO-ESP32C6-p-5884.html) |
 | XIAO ESP32-C3 | Supported; use 512-sample packets and 160 MHz for PDM | [Seeed Studio](https://www.seeedstudio.com/Seeed-XIAO-ESP32C3-p-5431.html) |
 | XIAO ESP32-C5 | Supported; use 512-sample packets and 160 MHz for PDM | [Seeed Studio](https://www.seeedstudio.com/Seeed-Studio-XIAO-ESP32C5-p-6609.html) |
+
+### Experimental S3 boards with built-in microphones
+
+🟡 **Experimental — needs more testing.** Available since v1.32.
+
+Use the **S3 firmware** for **XIAO ESP32-S3 Sense** and **M5Stack AtomS3U**.
+In the device Web UI, open **Audio → S3 board**, select your board and click
+**Apply board**. This selects its built-in PDM microphone at 48 kHz and saves the
+choice across restarts and OTA updates. Check **Signal Level / Listen** and adjust
+**Gain** as needed.
+
+The default is **XIAO ESP32-S3 / Plus (default)** with an external microphone; select the
+microphone format below it as usual. The board selector appears only in S3 firmware.
+When using an external microphone on a Sense board, select this default option too.
+
+| Board option | Microphone | Status |
+|---|---|---|
+| XIAO ESP32-S3 Sense | Built-in PDM; no microphone wiring needed | 🟡 Experimental — needs more testing |
+| M5Stack AtomS3U | Built-in PDM; no microphone wiring needed | 🟡 Experimental — needs more testing |
 
 ### Microphones
 

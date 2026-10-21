@@ -1,12 +1,12 @@
 # Release validation
 
-Firmware **1.31** includes all four XIAO board images. Maintainer hardware validation
+Firmware **1.32** includes all four XIAO board images. Maintainer hardware validation
 primarily covers C6 with an I2S microphone; physical PDM validation and long-running
 C5 PDM testing of the integrated image remain pending.
 
 ## Release notes
 
-See the [current changelog](esp32-birdnet-mic/CHANGELOG.md#131---2026-10-20).
+See the [current changelog](esp32-birdnet-mic/CHANGELOG.md#132---2026-10-21).
 Previous release records are retained in `release-notes/`.
 
 ## Build and local checks
@@ -50,7 +50,7 @@ retrying; uploads and deployments are not rolled back automatically.
 The read-only acceptance check can also be rerun independently:
 
 ```sh
-python3 tools/verify_published_release.py 1.31
+python3 tools/verify_published_release.py 1.32
 ```
 
 The check downloads public artifacts over the actual HTTP OTA route and compares all

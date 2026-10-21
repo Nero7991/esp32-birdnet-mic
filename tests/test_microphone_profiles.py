@@ -66,6 +66,7 @@ std::vector<bool> restartResults;
 micprofiles::Board board=micprofiles::C6;
 bool getRecommendedMicSettings(uint8_t f,micprofiles::Settings& p){return micprofiles::recommended(board,f,p);}
 bool pdmMicSupported(){return supported;}
+bool micBoardFormatAllowed(uint8_t){return true;}
 void stopAudioProducer(){stopped=true;++stops;}
 uint32_t computeRecommendedMinRate(){return currentSampleRate/currentBufferSize/2;}
 bool setCpuFrequencyMhz(uint32_t){assert(stopped);++clockCalls;return clockAllowed;}

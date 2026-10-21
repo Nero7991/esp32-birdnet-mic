@@ -51,6 +51,7 @@ bool supported=true, autoThresholdEnabled=true, stopped=false;
 std::vector<bool> restarts;
 int stops=0, calls=0;
 bool pdmMicSupported(){return supported;}
+bool micBoardFormatAllowed(uint8_t){return true;}
 void stopAudioProducer(){stopped=true; ++stops;}
 bool restartI2S(){assert(stopped); ++calls; bool ok=restarts.front(); restarts.erase(restarts.begin()); return ok;}
 void simplePrintln(const char*){}

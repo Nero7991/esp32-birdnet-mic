@@ -8,7 +8,7 @@ Arduino firmware for Seeed XIAO ESP32 I2S and experimental PDM microphones that 
 **RTSP** for **BirdNET-Go** and **BirdNET-Pi**. It also provides a Web UI, JSON API, MQTT telemetry,
 and Home Assistant MQTT Discovery.
 
-- Latest firmware: **v1.31** (2026-10-20)
+- Latest firmware: **v1.32** (2026-10-21)
 - [Overview, support status and parts](../README.md) · [Release history](CHANGELOG.md)
 - Build targets: Seeed Studio **XIAO ESP32-C3**, **XIAO ESP32-S3**, **XIAO ESP32-C5**, **XIAO ESP32-C6**
 - Runtime-tested board: Seeed Studio **XIAO ESP32-C6**
@@ -19,6 +19,18 @@ and Home Assistant MQTT Discovery.
 - Web flasher: **https://esp32mic.msmeteo.cz**
 - Manual OTA firmware: `../manual-ota-firmware/firmware-app-<board>.bin` (`firmware-app.bin` remains the C6 alias)
 - License: MIT (`../LICENSE`)
+
+## Experimental S3 board selection (since v1.32)
+
+🟡 **Experimental — needs more testing:** XIAO ESP32-S3 Sense and M5Stack AtomS3U
+use the shared **S3 firmware**. Open **Audio → S3 board** in the device Web UI,
+select the board, and click **Apply board**. Its built-in PDM microphone runs at
+48 kHz; the selection is saved across restarts and OTA updates. Adjust Gain using
+the signal meter and Listen.
+
+The **XIAO ESP32-S3 / Plus (default)** option keeps the usual wiring
+and microphone-format selection. The selector is shown only in S3 firmware.
+For an external microphone on a Sense board, use the default option.
 
 ## Important URLs
 
