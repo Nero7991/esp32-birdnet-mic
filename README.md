@@ -8,8 +8,14 @@ Turn a **Seeed Studio XIAO ESP32** and a digital microphone into a Wi-Fi microph
 for **BirdNET-Go**, **BirdNET-Pi**, VLC or ffmpeg. Listen in your browser, adjust settings
 and check device health without installing an app.
 
-**Latest firmware: v1.32** · [Latest published release](https://github.com/Sukecz/esp32-birdnet-mic/releases/latest)
+**Latest firmware: v1.33** · [Latest published release](https://github.com/Sukecz/esp32-birdnet-mic/releases/latest)
 · [Web flasher](https://esp32mic.msmeteo.cz) · [Changelog](esp32-birdnet-mic/CHANGELOG.md)
+
+## What's new in 1.33
+
+- **OTA and thermal recovery fix:** stop audio capture and I2S/PDM clocks during updates and thermal shutdowns; restore capture after a failed update.
+- Check temperature-driver errors and select an appropriate sensor range.
+- Recovery requires five continuous minutes at least **10 °C below the shutdown limit**. Existing shutdowns migrate without clearing their history or safety blocks.
 
 ## What's new in 1.32
 

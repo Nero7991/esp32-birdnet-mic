@@ -8,7 +8,7 @@ Arduino firmware for Seeed XIAO ESP32 I2S and experimental PDM microphones that 
 **RTSP** for **BirdNET-Go** and **BirdNET-Pi**. It also provides a Web UI, JSON API, MQTT telemetry,
 and Home Assistant MQTT Discovery.
 
-- Latest firmware: **v1.32** (2026-10-21)
+- Latest firmware: **v1.33** (2026-10-21)
 - [Overview, support status and parts](../README.md) · [Release history](CHANGELOG.md)
 - Build targets: Seeed Studio **XIAO ESP32-C3**, **XIAO ESP32-S3**, **XIAO ESP32-C5**, **XIAO ESP32-C6**
 - Runtime-tested board: Seeed Studio **XIAO ESP32-C6**
@@ -708,7 +708,9 @@ Current validation ranges include `sampleRate=8000..192000`, `bufferSize=256..81
 - If audio is noisy while Wi-Fi is otherwise stable, try lowering Wi-Fi TX power before changing audio settings.
 - Keep I2S wires short and away from the ESP32 RF area.
 - Use shielded cable for longer microphone runs.
-- Thermal protection disables RTSP at the configured limit. Optional automatic recovery waits five continuous minutes at least 15 C below the limit. The third shutdown in a rolling 24 hours, an emergency shutdown (limit + 10 C), or a legacy latch requires manual acknowledgement after cooling. History and blocks survive reboot; without a valid clock, unknown event ages are conservatively counted for 24 hours after boot. Sensor errors reset cooling; manual server stops cancel pending automatic recovery. Recovery respects the stream schedule. The warning stays visible until acknowledged, and last-shutdown details remain available.
+- OTA pauses capture and I2S/PDM clocks until reboot; a failed update restores capture, respecting thermal shutdown and stream schedules.
+- Temperature monitoring checks driver errors and switches between supported sensor ranges; readings remain approximate chip temperatures.
+- Thermal protection disables RTSP and capture at the configured limit. Optional automatic recovery waits five continuous minutes at least 10 C below the limit. The third shutdown in a rolling 24 hours, an emergency shutdown (limit + 10 C), or a legacy latch requires manual acknowledgement after cooling. History and blocks survive reboot; without a valid clock, unknown event ages are conservatively counted for 24 hours after boot. Sensor errors reset cooling; manual server stops cancel pending automatic recovery. Recovery respects the stream schedule. The warning stays visible until acknowledged, and last-shutdown details remain available.
 
 ## Security
 

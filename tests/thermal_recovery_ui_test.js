@@ -3,6 +3,8 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 const html = fs.readFileSync(path.join(__dirname, '../esp32-birdnet-mic/webui/index.html'), 'utf8');
+assert(html.includes('Recovery requires 5 minutes at least 10 C below the limit.'));
+assert(!html.includes('at least 15 C below the limit'));
 const ids = ['sel_oh_auto', 'therm_trip_count', 'thermal_notice', 'thermal_notice_title',
   'thermal_notice_detail', 'row_therm_latch', 'txt_therm_latch', 'therm_status',
   'btn_therm_clear', 'btn_thermal_notice_ack', 'b_srv_on', 'b_srv_off'];
@@ -19,14 +21,14 @@ function loadFunction(name, next) {
 loadFunction('renderThermalRecovery', 'loadTherm');
 loadFunction('setToggleState', 'renderTimeRows');
 const state = {protection_enabled: true, auto_resume_enabled: true, auto_resume_pending: true,
-  latched_persist: true, notice: true, trips_24h: 1, cool_limit_c: 65, cool_remaining_sec: 300,
+  latched_persist: true, notice: true, trips_24h: 1, cool_limit_c: 70, cool_remaining_sec: 300,
   can_acknowledge: false, schedule_allowed: true, last_trip_c: 81};
 context.renderThermalRecovery(state);
 assert.equal(nodes.thermal_notice.style.display, '');
 assert.equal(nodes.btn_therm_clear.disabled, true);
 assert.equal(nodes.btn_thermal_notice_ack.disabled, true);
 assert.equal(nodes.therm_trip_count.textContent, '1 / 3');
-assert(nodes.thermal_notice_detail.textContent.includes('65 °C'));
+assert(nodes.thermal_notice_detail.textContent.includes('70 °C'));
 assert(nodes.thermal_notice_detail.textContent.includes('5:00'));
 context.setToggleState(false);
 assert.equal(nodes.b_srv_off.disabled, false); // User can cancel pending recovery.

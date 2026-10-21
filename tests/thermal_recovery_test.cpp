@@ -3,7 +3,7 @@
 #include <limits>
 
 static void cool(ThermalRecovery& p, uint32_t start = 0) {
-    for (uint32_t t = 0; t <= ThermalRecovery::COOL_MS; t += 5000) p.sample(start + t, true, 65);
+    for (uint32_t t = 0; t <= ThermalRecovery::COOL_MS; t += 5000) p.sample(start + t, true, 70);
 }
 
 int main() {
@@ -74,15 +74,15 @@ int main() {
     cool(p);
     assert(p.cooled(300000));
     assert(!p.cooled(315001));
-    p.sample(305000, true, 65.1f);
+    p.sample(305000, true, 70.1f);
     assert(!p.cooled(305000) && p.remainingSec(305000) == 300);
-    p.sample(310000, true, 65);
+    p.sample(310000, true, 70);
     p.sample(315000, false, 0);
     assert(!p.cooled(315000));
     p.sample(320000, true, std::numeric_limits<float>::quiet_NaN());
     assert(!p.cooled(320000));
-    p.sample(325000, true, 65);
-    p.sample(345001, true, 65); // Long unobserved interval restarts the timer.
+    p.sample(325000, true, 70);
+    p.sample(345001, true, 70); // Long unobserved interval restarts the timer.
     assert(p.remainingSec(345001) == 300);
     cool(p, UINT32_MAX - 100000); // millis wrap during continuous cooling.
     assert(p.cooled(uint32_t(UINT32_MAX - 100000 + 300000)));
@@ -98,5 +98,24 @@ int main() {
     p.state.magic = 0;
     rebooted.restore(p.state, true, 0, 30);
     assert(rebooted.state.latched && rebooted.state.manualBlocked && rebooted.state.notice);
-    assert(rebooted.state.coolLimitC == 15); // Migration respects a nondefault limit.
+    assert(rebooted.state.coolLimitC == 20); // Migration respects a nondefault limit.
+    // An OTA from THR1 changes the margin once and retains every safety block.
+    saved = ThermalRecoveryState{};
+    saved.magic = 0x54485231;
+    saved.coolLimitC = 65;
+    saved.latched = saved.notice = saved.manualBlocked = saved.emergency = 1;
+    saved.count = 3;
+    saved.tripEpoch[0] = epoch;
+    rebooted.restore(saved, true, 0);
+    assert(rebooted.state.coolLimitC == 70 && rebooted.state.count == 3);
+    assert(rebooted.state.emergency && rebooted.state.manualBlocked && rebooted.state.latched);
+    assert(rebooted.state.tripEpoch[0] == epoch);
+    saved = rebooted.state;
+    rebooted.restore(saved, true, 0);
+    assert(rebooted.state.coolLimitC == 70); // No repeated relaxation on reboot.
+    rebooted.restore(saved, true, 0, 75);
+    assert(rebooted.state.coolLimitC == 65); // Respect a lower configured limit.
+    for (uint32_t t = 0; t <= ThermalRecovery::COOL_MS; t += 5000) rebooted.sample(t, true, 65);
+    assert(rebooted.acknowledge(300000)); // Migrated emergency/third-trip latch unlocks after cooling.
+    assert(!rebooted.state.latched && rebooted.state.count == 0);
 }

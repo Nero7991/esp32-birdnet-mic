@@ -49,9 +49,13 @@ uint32_t thermalEpochNow() { return 1800000000 + nowMs / 1000; }
 String formatUptime(unsigned long) { return "uptime"; }
 float temperature = 40, lastTemperatureC = 40, maxTemperature = 40;
 float overheatShutdownC = 80, overheatTripTemp = 0;
-float temperatureRead() { return temperature; }
+float readChipTemperature() { return temperature; }
 bool overheatLatched = false, overheatLockoutActive = false, overheatSensorFault = false;
 bool overheatProtectionEnabled = true, overheatAutoResumeEnabled = true;
+bool otaInProgress = false, captureRunning = true, restartOk = true;
+int capturePauses = 0;
+void pauseAudioCapture() { captureRunning = false; ++capturePauses; }
+bool setup_i2s_driver() { captureRunning = restartOk; return restartOk; }
 bool lastTemperatureValid = true, rtspServerEnabled = true, scheduleAllowed = true;
 uint8_t overheatConsecutiveSamples = 0;
 unsigned long overheatTriggeredAt = 0;
@@ -88,13 +92,17 @@ bool isStreamScheduleAllowedNow() { return scheduleAllowed; }
             code += function(signature) + '\n'
         code += r'''
 void sample(float temp) { nowMs += 5000; temperature = temp; checkTemperature(); }
-void cooldown() { for (unsigned i = 0; i < 61; ++i) sample(65); }
+void cooldown() { for (unsigned i = 0; i < 61; ++i) sample(70); }
 void trip() { sample(81); sample(81); sample(81); }
 int main() {
+    sample(NAN); sample(INFINITY); sample(131);
+    assert(!overheatLatched && stops == 0); // Invalid sensor values cannot trip protection.
+    sample(40);
     sample(81); sample(40); // Isolated spike must not stop RTSP.
     assert(!overheatLatched && stops == 0);
     trip();
     assert(overheatLatched && !rtspServerEnabled && stops == 1);
+    assert(!captureRunning && capturePauses == 1);
     assert(flash.latched && flash.count == 1);
     assert(!acknowledgeThermalShutdown());
     sample(81); sample(81); // Still hot while latched: one event only.
@@ -104,6 +112,7 @@ int main() {
     assert(overheatSensorFault && overheatLastReason == reason);
     cooldown();
     assert(!overheatLatched && rtspServerEnabled && starts == 1);
+    assert(captureRunning);
     assert(flash.notice && flash.resumed && flash.count == 1);
     assert(acknowledgeThermalShutdown());
     assert(!flash.notice && flash.count == 1 && overheatLastReason == reason);
@@ -135,10 +144,20 @@ int main() {
     trip(); scheduleAllowed = false; cooldown();
     assert(overheatLatched && starts == 5);
     int before = writes;
-    sample(65); sample(65);
+    sample(70); sample(70);
     assert(writes == before); // No periodic flash writes while cooling.
-    scheduleAllowed = true; sample(65);
+    scheduleAllowed = true; sample(70);
     assert(!overheatLatched && starts == 6 && flash.notice);
+    // Failed capture restart must retain the persisted shutdown and retry budget.
+    trip(); restartOk = false; cooldown();
+    assert(overheatLatched && flash.latched && !rtspServerEnabled);
+    restartOk = true; cooldown();
+    assert(!overheatLatched && captureRunning && rtspServerEnabled);
+    // Manual recovery also keeps the event if capture cannot restart.
+    sample(90); restartOk = false; cooldown();
+    assert(!acknowledgeThermalShutdown() && overheatLatched && flash.latched);
+    restartOk = true; cooldown();
+    assert(acknowledgeThermalShutdown() && captureRunning && !overheatLatched);
 }
 '''
         self.compile_run(code)

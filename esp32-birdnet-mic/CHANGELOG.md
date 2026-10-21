@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.33 - 2026-10-21
+
+- **OTA:** stop RTSP/browser listeners, audio capture and I2S/PDM clocks before flash writes on automatic download, manual upload and ArduinoOTA. Keep capture paused until reboot after success; restore it after failure without bypassing a thermal shutdown or stream schedule.
+- **Thermal shutdown:** stop capture and its clocks so the module can cool, including after reboot with a saved shutdown. Restart capture successfully before clearing the latch or restoring RTSP.
+- **Temperature monitoring:** use checked ESP-IDF sensor reads and supported measurement ranges instead of Arduino's fixed 10–50 °C configuration. Failed reads never become valid samples even when the driver supplies a finite number.
+- **Cooling recovery:** require five continuous minutes at least **10 °C below the shutdown limit**, reduced from 15 °C. Migrate saved shutdowns to the new margin once, preserving trip history, emergency/manual blocks and existing user settings. Invalid/missing samples reset the cooling timer.
+- All four builds and 55 regression tests passed. C6 I2S OTA, rejected-upload recovery, a subsequent successful retry, browser listening and RTSP reception passed with settings retained. Thermal trips/cooling were simulated; see the [validation record](../release-notes/1.33-validation.md) for coverage and hardware limits.
+
 ## 1.32 - 2026-10-21
 
 - Add **Audio → S3 board** to the shared S3 firmware. XIAO ESP32-S3 with an external microphone remains the default; select XIAO ESP32-S3 Sense or M5Stack AtomS3U for their built-in 48 kHz PDM microphones. Both are **Experimental — needs more testing**.

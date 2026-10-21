@@ -95,6 +95,8 @@ extern bool overheatAutoResumeEnabled;
 extern ThermalRecovery thermalRecovery;
 extern bool acknowledgeThermalShutdown();
 extern void cancelThermalResume();
+extern void beginOtaUpdate();
+extern void endOtaUpdate(bool installed);
 struct StreamProfileConfig { uint8_t target; };
 extern StreamProfileConfig streamProfiles[2];
 extern bool streamEnabled[2];
@@ -713,10 +715,11 @@ static bool installOtaFromUrl(const String &url, String &errorOut) {
         return false;
     }
 
-    stopAllRtspClients("OTA update starting");
+    beginOtaUpdate();
     webui_pushLog(String("OTA pull update from ") + url);
     bool ok = streamUpdate(*stream, contentLength, errorOut);
     http.end();
+    endOtaUpdate(ok);
     return ok;
 }
 
@@ -808,6 +811,7 @@ static void httpOtaUploadDone() {
         sendOtaPage(F("Firmware uploaded and installed. Device will reboot now."), true);
         scheduleReboot(false, 700);
     } else {
+        endOtaUpdate(false);
         sendOtaPage(String("Upload failed: ") + otaUploadError, false);
     }
 }
@@ -827,16 +831,18 @@ static void httpOtaUploadChunk() {
             Update.abort();
             return;
         }
-        stopAllRtspClients("OTA upload starting");
+        beginOtaUpdate();
         webui_pushLog(String("OTA upload start: ") + upload.filename);
         if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
             otaUploadError = String("Update begin failed: ") + Update.errorString();
+            endOtaUpdate(false);
         }
     } else if (upload.status == UPLOAD_FILE_WRITE) {
         if (otaUploadError.length() == 0) {
             if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
                 otaUploadError = String("Flash write failed: ") + Update.errorString();
                 Update.abort();
+                endOtaUpdate(false);
             }
         }
     } else if (upload.status == UPLOAD_FILE_END) {
@@ -852,9 +858,11 @@ static void httpOtaUploadChunk() {
                 webui_pushLog(String("OTA upload installed, bytes=") + String(upload.totalSize));
             }
         }
+        endOtaUpdate(otaUploadOk);
     } else if (upload.status == UPLOAD_FILE_ABORTED) {
         otaUploadError = F("Upload aborted.");
         Update.abort();
+        endOtaUpdate(false);
     }
 }
 

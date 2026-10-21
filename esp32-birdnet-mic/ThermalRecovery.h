@@ -4,9 +4,9 @@
 
 // Persist only events/state transitions, never the five-second sensor samples.
 struct ThermalRecoveryState {
-    uint32_t magic = 0x54485231; // THR1, also the storage format version
+    uint32_t magic = 0x54485232; // THR2: ten-degree cooling margin, same layout.
     uint32_t tripEpoch[3] = {};
-    float coolLimitC = 65.0f;
+    float coolLimitC = 70.0f;
     uint8_t count = 0;
     uint8_t latched = 0;
     uint8_t manualBlocked = 0;
@@ -21,14 +21,19 @@ public:
     static constexpr uint32_t WINDOW_SEC = 86400;
     static constexpr uint32_t COOL_MS = 300000;
     static constexpr uint32_t SAMPLE_MAX_AGE_MS = 15000;
-    static constexpr float COOL_MARGIN_C = 15.0f;
+    static constexpr float COOL_MARGIN_C = 10.0f;
     ThermalRecoveryState state;
 
     void restore(const ThermalRecoveryState& saved, bool legacyLatch, uint64_t uptimeSec, float limitC = 80.0f) {
-        bool valid = saved.magic == 0x54485231 && saved.count <= 3 &&
-                     isfinite(saved.coolLimitC) && saved.coolLimitC >= 15 && saved.coolLimitC <= 80;
+        const bool legacy = saved.magic == 0x54485231;
+        bool valid = (legacy || saved.magic == 0x54485232) && saved.count <= 3 &&
+                     isfinite(saved.coolLimitC) && saved.coolLimitC >= 15 && saved.coolLimitC <= 85;
         state = valid ? saved : ThermalRecoveryState{};
-        if (!valid) state.coolLimitC = limitC - COOL_MARGIN_C;
+        state.magic = 0x54485232;
+        // Migrate an existing shutdown without erasing it or its retry history.
+        // Do not let a later, lower configured limit weaken the cooling target.
+        if (valid) state.coolLimitC = fminf(state.coolLimitC + (legacy ? 5.0f : 0.0f), limitC - COOL_MARGIN_C);
+        else state.coolLimitC = limitC - COOL_MARGIN_C;
         if (!valid && legacyLatch) {
             // An old latch has no retry history: require acknowledgement.
             state.latched = state.manualBlocked = state.notice = 1;

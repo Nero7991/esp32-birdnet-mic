@@ -36,6 +36,7 @@
 #include "MicrophoneSignal.h"
 #include "BrowserAudio.h"
 #include "ThermalRecovery.h"
+#include "ChipTemperature.h"
 #include "AudioReserve.h"
 #define FXAUDIO_HOT IRAM_ATTR __attribute__((noinline))
 #include "FixedAudio.h"
@@ -70,7 +71,7 @@ static constexpr uint32_t PDM_SAMPLE_RATE = 48000;
 static constexpr uint32_t PDM_CLOCK_HZ = PDM_SAMPLE_RATE * 64;
 
 // ================== SETTINGS (ESP32 RTSP Mic for BirdNET-Go / BirdNET-Pi) ==================
-#define FW_VERSION "1.32"
+#define FW_VERSION "1.33"
 // Expose FW version as a global C string for WebUI/API
 const char* FW_VERSION_STR = FW_VERSION;
 // Build timestamp for diagnostics (compile time)
@@ -483,6 +484,7 @@ String overheatLastTimestamp = "";
 bool overheatSensorFault = false;
 bool overheatLatched = false;
 bool overheatAutoResumeEnabled = false;
+bool otaInProgress = false;
 ThermalRecovery thermalRecovery;
 
 // -- Scheduled reset
@@ -1849,9 +1851,17 @@ void cancelThermalResume() {
 }
 
 bool acknowledgeThermalShutdown() {
+    if (otaInProgress) return false;
     bool wasLatched = overheatLatched;
+    const ThermalRecoveryState saved = thermalRecovery.state;
     if (!thermalRecovery.acknowledge(millis())) return false;
     overheatLatched = false;
+    if (wasLatched && !setup_i2s_driver()) {
+        thermalRecovery.state = saved;
+        overheatLatched = true;
+        simplePrintln("Thermal recovery: audio restart failed; shutdown retained.");
+        return false;
+    }
     overheatLockoutActive = false;
     overheatConsecutiveSamples = 0;
     // Preserve the last shutdown details for diagnosis after acknowledgement.
@@ -1878,14 +1888,14 @@ void recordOverheatTrip(float temp) {
     overheatLatched = true;
     simplePrintln("THERMAL PROTECTION: " + overheatLastReason);
     simplePrintln(thermalRecovery.autoPending(overheatAutoResumeEnabled, overheatProtectionEnabled)
-                  ? "Waiting for five minutes at least 15 C below the limit before automatic recovery."
+                  ? "Waiting for five minutes at least 10 C below the limit before automatic recovery."
                   : "Manual acknowledgement required after cooling.");
     persistOverheatNote();
 }
 
 // Temperature monitoring + thermal protection
 void checkTemperature() {
-    float temp = temperatureRead(); // ESP32 internal sensor (approximate)
+    float temp = readChipTemperature(); // Checked, range-aware internal sensor.
     bool tempValid = isTemperatureValid(temp);
     if (thermalRecovery.updateHistory(thermalEpochNow(), esp_timer_get_time() / 1000000ULL)) {
         persistOverheatNote();
@@ -1944,6 +1954,7 @@ void checkTemperature() {
                 stopAllRtspClients("Thermal protection");
                 rtspServerEnabled = false;
                 rtspServer.stop();
+                pauseAudioCapture();
                 mqttPublishState(true);
             }
         }
@@ -1952,8 +1963,15 @@ void checkTemperature() {
     }
     if (thermalRecovery.canResume(millis(), overheatAutoResumeEnabled,
                                   overheatProtectionEnabled, isStreamScheduleAllowedNow())) {
+        overheatLatched = false;
+        if (!setup_i2s_driver()) {
+            overheatLatched = true;
+            thermalRecovery.resetCooling();
+            simplePrintln("Thermal recovery: audio restart failed; shutdown retained.");
+            return;
+        }
         thermalRecovery.resume();
-        overheatLatched = overheatLockoutActive = false;
+        overheatLockoutActive = false;
         overheatConsecutiveSamples = 0;
         persistOverheatNote();
         rtspServer.begin();
@@ -2631,7 +2649,8 @@ void setupOTA() {
 #ifdef OTA_PASSWORD
     ArduinoOTA.setPassword(OTA_PASSWORD);
 #endif
-    ArduinoOTA.onStart([] { browserAudioStop(); });
+    ArduinoOTA.onStart([] { beginOtaUpdate(); });
+    ArduinoOTA.onError([](ota_error_t) { endOtaUpdate(false); });
     ArduinoOTA.begin();
 }
 
@@ -2902,6 +2921,49 @@ void stopAudioProducer() {
     audioProducerStopRequested = false;
 }
 
+// Stop capture and its clocks as well as network listeners. Leaving the PDM
+// converter running prevents cooling and competes with flash writes during OTA.
+void pauseAudioCapture() {
+    stopAudioProducer();
+    if (i2s_rx_handle) {
+        i2s_channel_disable(i2s_rx_handle);
+        i2s_del_channel(i2s_rx_handle);
+        i2s_rx_handle = nullptr;
+    }
+    audioDmaCallbackAvailable = false;
+    releasePdmCapture();
+}
+
+static bool otaRestoreRtsp = false;
+
+void beginOtaUpdate() {
+    if (otaInProgress) return;
+    otaRestoreRtsp = rtspServerEnabled;
+    otaInProgress = true;
+    stopAllRtspClients("OTA update starting");
+    rtspServerEnabled = false;
+    rtspServer.stop();
+    pauseAudioCapture();
+    overheatConsecutiveSamples = 0;
+    simplePrintln("OTA: audio capture paused until reboot or update failure.");
+}
+
+void endOtaUpdate(bool installed) {
+    if (!otaInProgress || installed) return; // Successful OTA stays paused until reboot.
+    otaInProgress = false;
+    if (overheatLatched) return;
+    if (!setup_i2s_driver()) {
+        simplePrintln("OTA failed: audio restart failed; reboot required.");
+        return;
+    }
+    if (otaRestoreRtsp && isStreamScheduleAllowedNow()) {
+        rtspServer.begin();
+        rtspServer.setNoDelay(true);
+        rtspServerEnabled = true;
+    }
+    simplePrintln("OTA failed: audio capture restored.");
+}
+
 bool startAudioProducer() {
     stopAudioProducer();
 
@@ -2971,6 +3033,9 @@ bool setup_i2s_driver() {
     }
 
     releasePdmCapture();
+    // A persisted thermal shutdown must boot with capture stopped so it can
+    // actually cool. Settings changes must not bypass either pause condition.
+    if (overheatLatched || otaInProgress) return true;
     if (micFormat == MIC_FORMAT_PDM && (!pdmMicSupported() || currentSampleRate != PDM_SAMPLE_RATE)) return false;
     uint16_t dma_buf_len = (currentBufferSize > 512) ? 512 : currentBufferSize;
 
@@ -3795,7 +3860,7 @@ void setup() {
     lastPerformanceCheck = millis();
     lastWiFiCheck = millis();
     minFreeHeap = ESP.getFreeHeap();
-    float initialTemp = temperatureRead();
+    float initialTemp = readChipTemperature();
     if (isTemperatureValid(initialTemp)) {
         maxTemperature = initialTemp;
         lastTemperatureC = initialTemp;
@@ -3844,6 +3909,14 @@ void loop() {
     if (millis() - lastWebuiHandleMs >= WEBUI_HANDLE_INTERVAL_MS) {
         webui_handleClient();
         lastWebuiHandleMs = millis();
+    }
+
+    // Keep schedules, health recovery and thermal sampling from restarting
+    // capture between a successful HTTP install and its deferred reboot.
+    if (otaInProgress) {
+        if (scheduledRebootAt != 0 && millis() >= scheduledRebootAt) ESP.restart();
+        delay(1);
+        return;
     }
 
     if (millis() - lastTempCheck > TEMPERATURE_CHECK_INTERVAL_MS) {
