@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.34 - 2026-10-22
+
+- **C5 PSRAM:** enable PSRAM automatically in the build helper; allocate the 64 KiB RTSP ring and 32 KiB browser-listening queue in PSRAM. Keep DMA, PDM and capture/RTP working buffers internal. Preserve the adaptive internal-RAM fallback and check internal Wi-Fi/producer headroom before starting capture.
+- **Audio buffer lifecycle:** pair capability-aware allocation/deletion, clean up on task-start failure and prevent replacing listening storage after use or repeated initialization.
+- **Sense:** allow external Philips I2S and MSB/left-justified microphones while retaining the Sense board profile. PDM uses its built-in microphone. Preserve the chosen format across reboot/OTA, with existing transactional rollback on restart failure.
+- **AtomS3U:** record contributor hardware confirmation with BirdNET-Go on v1.33; keep its working CLK/DATA pins and left PDM slot. Sense remains experimental; maintainer hardware validation of both boards is pending.
+- **Diagnostics:** expose RTSP buffer placement and listening queue size, plus C5 PSRAM size/free space and the true minimum internal heap.
+- All four builds, a C5 PSRAM-disabled build and 59 host regression tests passed. C6 I2S OTA, TCP/UDP reception and browser listening passed with checked settings retained. See the [validation record](../release-notes/1.34-validation.md) for evidence and hardware limits.
+
+
 ## 1.33 - 2026-10-21
 
 - **Manual recovery:** after explicitly switching thermal protection OFF, acknowledge a saved shutdown immediately, including emergency/repeated trips and sensor faults. Switching OFF alone keeps streaming paused until acknowledgement. With protection ON, the five-minute cooling requirement still applies.

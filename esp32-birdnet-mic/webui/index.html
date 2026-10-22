@@ -183,7 +183,7 @@
 <option value='2'>M5Stack AtomS3U</option>
 </select>
 <button id='btn_s3_board_apply' onclick='saveS3Board()'>Apply board</button>
-</div><div class='hint'>Sense / AtomS3U: Experimental — needs more testing. Uses the built-in PDM microphone; no microphone wiring is needed. Default: external microphone. Applying restarts audio and saves the board.</div></td>
+</div><div class='hint'>AtomS3U: contributor-tested with BirdNET-Go; built-in PDM microphone. Sense: Experimental — needs more testing; PDM uses its built-in microphone, I2S uses an external microphone. Default: external microphone. Applying restarts audio and saves the board.</div></td>
 </tr>
 <tr>
 <td class='k'>
@@ -1332,18 +1332,18 @@ function renderMicFormat(j){
     row.style.display=j.s3_board_supported===true?'':'none';
     syncInput(document.getElementById('sel_s3_board'),'s3_board',String(j.s3_board??0));
   }
-  const builtin=j.builtin_mic===true;
+  const locked=j.s3_board_supported===true&&Number(j.s3_board)===2;
   const apply=document.getElementById('btn_mic_apply');
-  if(apply)apply.disabled=builtin;
+  if(apply)apply.disabled=locked;
 
   const select=document.getElementById('sel_mic_format');
   const now=Date.now();
-  if(select){select.disabled=builtin;syncInput(select,'mic_format',String(j.mic_format));}
+  if(select){select.disabled=locked;syncInput(select,'mic_format',String(j.mic_format));}
   if(select){toggleDirty(select,'mic_format');document.getElementById('mic_format_label').textContent=select.selectedOptions[0]?.textContent||'';}
   const option=document.getElementById('opt_pdm');
   if(option){
     option.disabled=j.pdm_supported!==true;
-    option.textContent=builtin?'Built-in PDM microphone':'PDM microphone (IM73D122)';
+    option.textContent=j.s3_board_supported===true&&Number(j.s3_board)!==0?'Built-in PDM microphone':'PDM microphone (IM73D122)';
   }
   const pdm=j.mic_format===2;
   const gainHint=document.getElementById('txt_gain_hint');

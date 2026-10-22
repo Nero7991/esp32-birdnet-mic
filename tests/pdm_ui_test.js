@@ -30,7 +30,7 @@ assert.equal(nodes.sel_mic_format.value,'0');
 for(const id of ['in_rate','btn_rate_set','in_shift','btn_shift_set']) assert.equal(nodes[id].disabled,false);
 assert.equal(nodes.opt_pdm.disabled,true);
 assert.equal(nodes.txt_gain_hint.textContent,'Original I2S gain help');
-assert(html.includes('Sense / AtomS3U: Experimental — needs more testing.'));
+assert(html.includes('Sense: Experimental — needs more testing;'));
 console.log('PDM UI mode, capability, controls, help and edit locks passed');
 
 // Constrained boards must not be advised to increase to 1024/2048 samples.

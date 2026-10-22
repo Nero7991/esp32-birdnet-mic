@@ -14,6 +14,22 @@ if [[ -z "$fqbn" ]]; then
   echo "Usage: $0 --fqbn <BOARD_FQBN> [arduino-cli compile options]" >&2
   exit 2
 fi
+# XIAO ESP32-C5: enable its 8 MB PSRAM (audio ring and listening queue live there).
+case "$fqbn" in
+  esp32:esp32:XIAO_ESP32C5|esp32:esp32:XIAO_ESP32C5:*)
+    if [[ "$fqbn" != *PSRAM=* ]]; then
+      if [[ "$fqbn" == *:*:*:* ]]; then c5="$fqbn,PSRAM=enabled"; else c5="$fqbn:PSRAM=enabled"; fi
+      for ((i=0; i<${#args[@]}; i++)); do
+        case "${args[i]}" in
+          --fqbn|-b) args[i+1]="$c5" ;;
+          --fqbn=*) args[i]="--fqbn=$c5" ;;
+        esac
+      done
+      set -- "${args[@]}"
+      fqbn="$c5"
+    fi
+    ;;
+esac
 properties=()
 case "$fqbn" in
   esp32:esp32:XIAO_ESP32C3|esp32:esp32:XIAO_ESP32C3:*|esp32:esp32:XIAO_ESP32C6|esp32:esp32:XIAO_ESP32C6:*)

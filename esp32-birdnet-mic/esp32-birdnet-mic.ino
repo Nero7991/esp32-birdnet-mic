@@ -38,6 +38,21 @@
 #include "ThermalRecovery.h"
 #include "ChipTemperature.h"
 #include "AudioReserve.h"
+#include <esp_memory_utils.h>
+
+// XIAO ESP32-C5 with PSRAM enabled: the RTSP audio ring (and the browser-listening
+// queue, BrowserAudio.cpp) go in its 8 MB PSRAM, so internal RAM stays free for
+// Wi-Fi bursts. DMA and PDM working buffers stay internal. Needs board option
+// PSRAM=enabled (-DBOARD_HAS_PSRAM; tools/compile_firmware.sh adds it for C5).
+// Without it the core clears CONFIG_SPIRAM and the internal-RAM path is used.
+#if defined(CONFIG_IDF_TARGET_ESP32C5) && CONFIG_SPIRAM
+#define AUDIO_RING_IN_PSRAM 1
+#else
+#define AUDIO_RING_IN_PSRAM 0
+#endif
+#ifndef LOG_MEMORY_TREND
+#define LOG_MEMORY_TREND 0  // 1: log heap, PSRAM and stream counters every 5 minutes
+#endif
 #define FXAUDIO_HOT IRAM_ATTR __attribute__((noinline))
 #include "FixedAudio.h"
 
@@ -71,7 +86,7 @@ static constexpr uint32_t PDM_SAMPLE_RATE = 48000;
 static constexpr uint32_t PDM_CLOCK_HZ = PDM_SAMPLE_RATE * 64;
 
 // ================== SETTINGS (ESP32 RTSP Mic for BirdNET-Go / BirdNET-Pi) ==================
-#define FW_VERSION "1.33"
+#define FW_VERSION "1.34"
 // Expose FW version as a global C string for WebUI/API
 const char* FW_VERSION_STR = FW_VERSION;
 // Build timestamp for diagnostics (compile time)
@@ -261,6 +276,7 @@ struct ClientSession {
 };
 
 // Runtime microphone wiring selection within the shared S3 image.
+uint8_t micFormat = DEFAULT_MIC_FORMAT;
 uint8_t s3BoardVariant = s3boards::External;
 bool s3BoardSelectionSupported() {
 #if defined(ARDUINO_XIAO_ESP32S3)
@@ -270,10 +286,10 @@ bool s3BoardSelectionSupported() {
 #endif
 }
 bool builtinMicSelected() {
-    return s3BoardSelectionSupported() && s3boards::builtin(s3BoardVariant);
+    return s3BoardSelectionSupported() && s3boards::builtin(s3BoardVariant) && micFormat == 2;
 }
 bool micBoardFormatAllowed(uint8_t format) {
-    return !builtinMicSelected() || format == 2;
+    return !s3BoardSelectionSupported() || s3BoardVariant != s3boards::AtomS3U || format == 2;
 }
 void updateS3BoardIdentity() {
     if (!s3BoardSelectionSupported()) return;
@@ -295,7 +311,7 @@ bool getRecommendedMicSettings(uint8_t format, micprofiles::Settings& out) {
 #endif
     if (!micBoardFormatAllowed(format) || !micprofiles::recommended(board, format, out)) return false;
     // Start conservatively with the built-in microphones; tune from the level meter.
-    if (builtinMicSelected()) out.gain = DEFAULT_GAIN_FACTOR;
+    if (s3BoardSelectionSupported() && s3boards::builtin(s3BoardVariant) && format == 2) out.gain = DEFAULT_GAIN_FACTOR;
     return true;
 }
 
@@ -409,6 +425,7 @@ int16_t* i2s_16bit_network_buffer = nullptr;
 uint8_t* rtpPacketScratch = nullptr;
 i2s_chan_handle_t i2s_rx_handle = nullptr;
 RingbufHandle_t audioRingBuffer = nullptr;
+bool audioRingInPsram = false;
 TaskHandle_t audioProducerTaskHandle = nullptr;
 volatile bool audioProducerStopRequested = false;
 volatile bool audioProducerRunning = false;
@@ -425,7 +442,6 @@ uint32_t currentSampleRate = DEFAULT_SAMPLE_RATE;
 float currentGainFactor = DEFAULT_GAIN_FACTOR;
 uint16_t currentBufferSize = DEFAULT_BUFFER_SIZE;
 uint8_t i2sShiftBits = 12;  // (1) compile-time default respected on first boot
-uint8_t micFormat = DEFAULT_MIC_FORMAT;
 
 MicrophoneSignal microphoneSignal;
 
@@ -2101,7 +2117,7 @@ void loadAudioSettings() {
         s3BoardVariant = s3boards::External;
     }
     updateS3BoardIdentity();
-    if (builtinMicSelected() && micFormat != MIC_FORMAT_PDM) {
+    if (!micBoardFormatAllowed(micFormat)) {
         micFormat = MIC_FORMAT_PDM;
         settingsRepaired = true;
     }
@@ -2572,7 +2588,7 @@ bool applyS3BoardConfig(uint8_t variant) {
     const uint16_t oldCutoff = highpassCutoffHz;
     stopAudioProducer();
     s3BoardVariant = variant;
-    if (builtinMicSelected()) {
+    if (s3boards::builtin(variant)) {
         micFormat = MIC_FORMAT_PDM;
         currentSampleRate = PDM_SAMPLE_RATE;
     }
@@ -2589,6 +2605,16 @@ bool applyS3BoardConfig(uint8_t variant) {
     minAcceptableRate = oldMinRate;
     if (!restartI2S()) simplePrintln("S3 board rollback failed; reboot recommended.");
     return false;
+}
+
+// Capture and RTP work buffers are touched for every packet: keep them internal,
+// since with PSRAM in the heap plain malloc() prefers PSRAM above 4 KB.
+static inline void* audioWorkAlloc(size_t bytes) {
+#if defined(CONFIG_IDF_TARGET_ESP32C5) && CONFIG_SPIRAM
+    return heap_caps_malloc(bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+#else
+    return malloc(bytes);
+#endif
 }
 
 // Restart I2S with new parameters
@@ -2608,10 +2634,10 @@ bool restartI2S() {
     if (i2s_16bit_network_buffer) { free(i2s_16bit_network_buffer); i2s_16bit_network_buffer = nullptr; }
     if (rtpPacketScratch) { free(rtpPacketScratch); rtpPacketScratch = nullptr; }
 
-    i2s_32bit_buffer = (int32_t*)malloc(currentBufferSize * sizeof(int32_t));
-    i2s_16bit_buffer = (int16_t*)malloc(currentBufferSize * sizeof(int16_t));
-    i2s_16bit_network_buffer = (int16_t*)malloc(currentBufferSize * sizeof(int16_t));
-    rtpPacketScratch = (uint8_t*)malloc(16 + (size_t)currentBufferSize * sizeof(int16_t));
+    i2s_32bit_buffer = (int32_t*)audioWorkAlloc(currentBufferSize * sizeof(int32_t));
+    i2s_16bit_buffer = (int16_t*)audioWorkAlloc(currentBufferSize * sizeof(int16_t));
+    i2s_16bit_network_buffer = (int16_t*)audioWorkAlloc(currentBufferSize * sizeof(int16_t));
+    rtpPacketScratch = (uint8_t*)audioWorkAlloc(16 + (size_t)currentBufferSize * sizeof(int16_t));
     if (!i2s_32bit_buffer || !i2s_16bit_buffer || !i2s_16bit_network_buffer || !rtpPacketScratch) {
         simplePrintln("FATAL: Memory allocation failed after parameter change!");
         if (i2s_32bit_buffer) { free(i2s_32bit_buffer); i2s_32bit_buffer = nullptr; }
@@ -2897,6 +2923,35 @@ void audioProducerTask(void* /*arg*/) {
     vTaskDelete(nullptr);
 }
 
+static void deleteAudioRingBuffer() {
+    if (!audioRingBuffer) return;
+#if AUDIO_RING_IN_PSRAM
+    vRingbufferDeleteWithCaps(audioRingBuffer);
+#else
+    vRingbufferDelete(audioRingBuffer);
+#endif
+    audioRingBuffer = nullptr;
+    audioRingInPsram = false;
+}
+
+#if AUDIO_RING_IN_PSRAM
+// Leave 64 KB of PSRAM for other large allocations; otherwise use internal RAM.
+static bool createPsramAudioRing(size_t requested) {
+    const uint32_t internal = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    if (!audioreserve::externalHeadroom(heap_caps_get_free_size(internal),
+                                       heap_caps_get_largest_free_block(internal))) return false;
+    if (heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) < requested + 64 * 1024) return false;
+    audioRingBuffer = xRingbufferCreateWithCaps(requested, RINGBUF_TYPE_BYTEBUF, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!audioRingBuffer) return false;
+    audioRingInPsram = true;
+    audioRingBufferCapacityBytes = requested;
+    simplePrintln("Audio reserve: " + String((uint32_t)requested) + " bytes in PSRAM; internal free " +
+                  String((uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)) +
+                  " bytes; PSRAM free " + String((uint32_t)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024)) + " KB");
+    return true;
+}
+#endif
+
 void stopAudioProducer() {
     browserAudioStop();
     audioProducerStopRequested = true;
@@ -2910,10 +2965,7 @@ void stopAudioProducer() {
         audioProducerTaskHandle = nullptr;
         audioProducerRunning = false;
     }
-    if (audioRingBuffer) {
-        vRingbufferDelete(audioRingBuffer);
-        audioRingBuffer = nullptr;
-    }
+    deleteAudioRingBuffer();
     audioRingBufferCapacityBytes = 0;
     audioRingBufferFlushPending = false;
     audioProcessingLoadSnapshot.store(0, std::memory_order_relaxed);
@@ -2964,10 +3016,23 @@ void endOtaUpdate(bool installed) {
     simplePrintln("OTA failed: audio capture restored.");
 }
 
+static RingbufHandle_t createInternalAudioRing(size_t bytes) {
+#if AUDIO_RING_IN_PSRAM
+    return xRingbufferCreateWithCaps(bytes, RINGBUF_TYPE_BYTEBUF, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+#else
+    return xRingbufferCreate(bytes, RINGBUF_TYPE_BYTEBUF);
+#endif
+}
+
 bool startAudioProducer() {
     stopAudioProducer();
 
     const size_t requested = computeAudioRingBufferCapacity();
+#if AUDIO_RING_IN_PSRAM
+    // PSRAM first; the unchanged internal-RAM reserve path below is the fallback.
+    if (!createPsramAudioRing(requested)) {
+        simplePrintln("Audio reserve: PSRAM unavailable, using internal RAM.");
+#endif
     const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
     const size_t heapFree = heap_caps_get_free_size(caps);
     const size_t heapLargest = heap_caps_get_largest_free_block(caps);
@@ -2990,7 +3055,7 @@ bool startAudioProducer() {
         simplePrintln("Audio reserve: insufficient RAM for Wi-Fi and capture.");
         return false;
     }
-    audioRingBuffer = xRingbufferCreate(audioRingBufferCapacityBytes, RINGBUF_TYPE_BYTEBUF);
+    audioRingBuffer = createInternalAudioRing(audioRingBufferCapacityBytes);
     if (!audioRingBuffer) {
         simplePrintln("Audio RB alloc failed");
         audioRingBufferCapacityBytes = 0;
@@ -2999,6 +3064,9 @@ bool startAudioProducer() {
 
     simplePrintln("Audio reserve: " + String((uint32_t)audioRingBufferCapacityBytes) +
                   " bytes; requested " + String((uint32_t)requested));
+#if AUDIO_RING_IN_PSRAM
+    }
+#endif
     updateHighpassCoeffs(); // producer is stopped here
     audioProducerStopRequested = false;
     audioProducerLastReadMs = millis();
@@ -3012,8 +3080,7 @@ bool startAudioProducer() {
     );
     if (rc != pdPASS) {
         simplePrintln("Audio producer failed");
-        vRingbufferDelete(audioRingBuffer);
-        audioRingBuffer = nullptr;
+        deleteAudioRingBuffer();
         audioRingBufferCapacityBytes = 0;
         return false;
     }
@@ -3060,8 +3127,10 @@ bool setup_i2s_driver() {
         config.clk_cfg.dn_sample_mode = I2S_PDM_DSR_8S;
         config.slot_cfg = I2S_PDM_RX_SLOT_PCM_FMT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO);
 #else
-        pdmDecimator = (pdmsw::Decimator*)malloc(sizeof(pdmsw::Decimator));
-        pdmReadBuffers = (PdmReadBuffers*)malloc(sizeof(PdmReadBuffers));
+        // Both are just over 4 KB; with PSRAM enabled, malloc() prefers PSRAM above
+        // 4 KB. The filter reads them for every PDM word, so keep them internal.
+        pdmDecimator = (pdmsw::Decimator*)audioWorkAlloc(sizeof(pdmsw::Decimator));
+        pdmReadBuffers = (PdmReadBuffers*)audioWorkAlloc(sizeof(PdmReadBuffers));
         if (!pdmDecimator || !pdmReadBuffers) {
             releasePdmCapture();
             i2s_del_channel(i2s_rx_handle); i2s_rx_handle = nullptr;
@@ -3077,6 +3146,10 @@ bool setup_i2s_driver() {
         err = i2s_channel_init_pdm_rx_mode(i2s_rx_handle, &config);
         if (err == ESP_OK) err = enableI2sReceiverWithDiagnostics();
         if (err == ESP_OK && startAudioProducer()) {
+#if MIC_PDM_SOFTWARE
+            simplePrintln(String("PDM filter buffers: ") +
+                          (esp_ptr_external_ram(pdmDecimator) || esp_ptr_external_ram(pdmReadBuffers) ? "PSRAM" : "internal RAM"));
+#endif
             simplePrintln(String("PDM ready: 48000 Hz, ") + pdmDecoderName() +
                           ", CLK=GPIO" + String(s3boards::clockPin(s3BoardVariant, I2S_BCLK_PIN)) +
                           ", DATA=GPIO" + String(s3boards::dataPin(s3BoardVariant, I2S_DOUT_PIN)) +
@@ -3747,6 +3820,32 @@ static void refreshLegacyRtspState() {
 
 // Web UI is a separate module (WebUI.*)
 
+// True minimum internal heap (the Web UI minimum is sampled and misses short
+// Wi-Fi bursts) and PSRAM. Logged at boot; every 5 minutes with LOG_MEMORY_TREND.
+void logMemorySnapshot(const char* label) {
+    const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    simplePrintln(String(label) + " heap: free " + String((uint32_t)(heap_caps_get_free_size(caps) / 1024)) +
+                  " KB, true min " + String((uint32_t)(heap_caps_get_minimum_free_size(caps) / 1024)) +
+                  " KB, largest " + String((uint32_t)(heap_caps_get_largest_free_block(caps) / 1024)) +
+                  " KB; PSRAM " + String((uint32_t)(ESP.getPsramSize() / 1024)) + " KB, free " +
+                  String((uint32_t)(ESP.getFreePsram() / 1024)) + " KB");
+}
+
+void logHeapTrend() {
+#if LOG_MEMORY_TREND
+    static unsigned long lastLogMs = 0;
+    if (millis() - lastLogMs < 300000UL) return;
+    lastLogMs = millis();
+    logMemorySnapshot("5-min");
+    simplePrintln("5-min stream: drops " + String(audioRingBufferDropCount.load(std::memory_order_relaxed)) +
+                  ", flushes " + String(audioRingBufferFlushCount) +
+                  ", TCP stalls " + String(rtspWriteStallCount) +
+                  ", write failures " + String(rtspWriteFailCount) +
+                  ", ring " + String((uint32_t)audioRingBufferCapacityBytes) +
+                  (audioRingInPsram ? " bytes (PSRAM)" : " bytes (internal)"));
+#endif
+}
+
 void setup() {
     Serial.begin(115200);
     delay(100);
@@ -3774,15 +3873,16 @@ void setup() {
     Serial.print(FW_BOARD_NAME_STR);
     Serial.println(" (no firmware-controlled RF switch)");
 #endif
+    logMemorySnapshot("Boot");
 
     // Load settings from flash
     loadAudioSettings();
 
     // Allocate buffers with current size
-    i2s_32bit_buffer = (int32_t*)malloc(currentBufferSize * sizeof(int32_t));
-    i2s_16bit_buffer = (int16_t*)malloc(currentBufferSize * sizeof(int16_t));
-    i2s_16bit_network_buffer = (int16_t*)malloc(currentBufferSize * sizeof(int16_t));
-    rtpPacketScratch = (uint8_t*)malloc(16 + (size_t)currentBufferSize * sizeof(int16_t));
+    i2s_32bit_buffer = (int32_t*)audioWorkAlloc(currentBufferSize * sizeof(int32_t));
+    i2s_16bit_buffer = (int16_t*)audioWorkAlloc(currentBufferSize * sizeof(int16_t));
+    i2s_16bit_network_buffer = (int16_t*)audioWorkAlloc(currentBufferSize * sizeof(int16_t));
+    rtpPacketScratch = (uint8_t*)audioWorkAlloc(16 + (size_t)currentBufferSize * sizeof(int16_t));
     if (!i2s_32bit_buffer || !i2s_16bit_buffer || !i2s_16bit_network_buffer || !rtpPacketScratch) {
         simplePrintln("FATAL: Memory allocation failed!");
         ESP.restart();
@@ -3852,6 +3952,7 @@ void setup() {
     // Web UI
     webui_begin();
     browserAudioBegin();
+    simplePrintln("Listen queue: " + String((uint32_t)browserAudioQueueBytes()) + " bytes");
     mqttRequestReconnect(true);
 
     lastStatsReset = millis();
@@ -3937,6 +4038,7 @@ void loop() {
 
     if (millis() - lastProducerHealthCheck >= 1000UL) {
         updateAudioDiagnostics();
+        logHeapTrend();
         checkMicrophoneSignal();
         checkAudioProducerHealth();
         lastProducerHealthCheck = millis();

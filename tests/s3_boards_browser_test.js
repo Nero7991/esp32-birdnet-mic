@@ -50,10 +50,19 @@ const {chromium}=require('playwright-core');
   await page.waitForFunction(()=>document.querySelector('#audiosec>.feedback')?.textContent.startsWith('Board saved.'));
   assert.deepEqual(writes[0],{path:'/api/settings/s3_board',values:{variant:'1'},csrf:'1'});
   assert.equal(await page.locator('#in_gain').inputValue(),'7');
-  assert(await page.locator('#sel_mic_format').isDisabled());
+  await page.waitForFunction(()=>!document.querySelector('#sel_mic_format').disabled&&document.querySelector('#sel_mic_format').value==='2');
+  assert(!await page.locator('#sel_mic_format').isDisabled());
   assert(await page.locator('#in_rate').isDisabled());
   assert.equal(await page.locator('#sel_mic_format').inputValue(),'2');
   assert.equal(await page.locator('#sel_s3_board').evaluate(e=>e.classList.contains('dirty')),false);
+  // A Sense profile restored with an external I2S microphone stays selectable.
+  fixture.audio_status.mic_format=0;fixture.audio_status.builtin_mic=false;
+  await page.evaluate(()=>refreshAll());
+  await page.waitForFunction(()=>document.querySelector('#sel_mic_format').value==='0'&&!document.querySelector('#in_rate').disabled);
+  assert.equal(await page.locator('#sel_s3_board').inputValue(),'1');
+  assert(!await page.locator('#sel_mic_format').isDisabled());
+  assert.equal(writes.length,1);
+
   failure=true;await page.selectOption('#sel_s3_board','2');await page.locator('#btn_s3_board_apply').click();
   await page.waitForFunction(()=>document.querySelector('#audiosec>.feedback')?.classList.contains('bad'));
   assert.equal(fixture.audio_status.s3_board,1);
@@ -63,6 +72,7 @@ const {chromium}=require('playwright-core');
   await page.waitForFunction(()=>document.querySelector('#audiosec>.feedback')?.textContent==='Saving…');
   await page.selectOption('#sel_s3_board','0');release();
   await page.waitForFunction(()=>document.querySelector('#audiosec>.feedback')?.textContent.startsWith('Board saved.'));
+  await page.waitForFunction(()=>document.querySelector('#sel_mic_format').disabled);
   assert.equal(fixture.audio_status.s3_board,2);assert.equal(await page.locator('#sel_s3_board').inputValue(),'0');
   pause=false;await page.locator('#btn_s3_board_apply').click();
   await page.waitForFunction(()=>!document.querySelector('#sel_mic_format').disabled);

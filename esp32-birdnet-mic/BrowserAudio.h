@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 void browserAudioBegin();
+size_t browserAudioQueueBytes();
 void browserAudioLoop(bool allowed, uint32_t sampleRate);
 void browserAudioStop();
 bool browserAudioActive();

@@ -43,7 +43,7 @@ int main() {
     def test_actual_c5_reserve_selection_boot_reconfigure_and_exhaustion(self):
         source = (ROOT / 'esp32-birdnet-mic/esp32-birdnet-mic.ino').read_text()
         start = source.index('    const size_t requested =', source.index('bool startAudioProducer() {'))
-        end = source.index('    audioRingBuffer = xRingbufferCreate', start)
+        end = source.index('    audioRingBuffer = createInternalAudioRing', start)
         for c5 in (False, True):
             with self.subTest(c5=c5):
                 self.native(('#define CONFIG_IDF_TARGET_ESP32C5 1\n' if c5 else '') + r'''

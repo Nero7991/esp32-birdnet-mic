@@ -1,6 +1,6 @@
 # Web flasher and firmware files
 
-**Firmware: 1.33** (2026-10-21).
+**Firmware: 1.34** (2026-10-22).
 
 Install using [esp32mic.msmeteo.cz](https://esp32mic.msmeteo.cz) in desktop **Chrome or Edge**
 with a USB **data** connection (AtomS3U plugs directly into USB-A). The flasher detects the ESP chip family and chooses the image for
@@ -8,7 +8,8 @@ XIAO ESP32-C3/S3/C5/C6. It cannot distinguish other board designs using the same
 
 **XIAO ESP32-S3 Sense / M5Stack AtomS3U:** use the S3 image, then open
 **Audio → S3 board** in the device Web UI, select your board and click **Apply board**.
-Both built-in microphone options are **Experimental — needs more testing**.
+AtomS3U is contributor-tested with BirdNET-Go on v1.33. Sense remains
+**Experimental — needs more testing**; its profile also accepts external I2S microphones.
 
 For wiring, microphone selection and feature status, see the [main guide](../README.md).
 PDM (IM73D122 / Adafruit PDM / MP34DT01) is **🟡 Experimental**; C3/C5 should use **512 samples per packet** and **160 MHz**.
@@ -19,7 +20,7 @@ Keeping saved values preserves the packet size; **Recommended settings** applies
 | Purpose | File | Notes |
 |---|---|---|
 | Update through the device's OTA page | `firmware-app-<board>.bin` | App-only; choose c3, s3, c5 or c6 |
-| Exact 1.33 OTA image | `firmware-app-<board>-1.33.bin` | Same app, versioned filename |
+| Exact 1.34 OTA image | `firmware-app-<board>-1.34.bin` | Same app, versioned filename |
 | USB web installation | `manifest.json` and its referenced parts | Let the web flasher handle offsets |
 | Manual full USB flash | `firmware-<board>.bin` | Merged image; can overwrite settings; never upload through OTA |
 | Legacy unsuffixed files | `firmware-app.bin`, `firmware.bin` | **C6 only** |

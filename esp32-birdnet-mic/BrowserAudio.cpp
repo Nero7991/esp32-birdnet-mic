@@ -4,6 +4,9 @@
 #include <sys/socket.h>
 #include "BrowserAudio.h"
 #include "PreviewBuffer.h"
+#if defined(CONFIG_IDF_TARGET_ESP32C5) && CONFIG_SPIRAM
+#include <esp_heap_caps.h>
+#endif
 
 namespace {
 WiFiServer listener(81);
@@ -65,7 +68,21 @@ bool prepareHeader(uint32_t rate) {
 }
 }
 
-void browserAudioBegin() { listener.begin(); listener.setNoDelay(true); }
+void browserAudioBegin() {
+#if defined(CONFIG_IDF_TARGET_ESP32C5) && CONFIG_SPIRAM
+    // C5 with PSRAM: 32 KiB (about 340 ms) in PSRAM instead of the 4 KiB
+    // internal queue; the internal queue remains the fallback.
+    static bool storagePrepared = false;
+    static constexpr size_t kPsramQueueBytes = 32768;
+    if (!storagePrepared && heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) >= kPsramQueueBytes + 64 * 1024) {
+        uint8_t* buffer = static_cast<uint8_t*>(heap_caps_malloc(kPsramQueueBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (buffer && !queue.useStorage(buffer, kPsramQueueBytes)) heap_caps_free(buffer);
+    }
+    storagePrepared = true;
+#endif
+    listener.begin(); listener.setNoDelay(true);
+}
+size_t browserAudioQueueBytes() { return queue.queueBytes(); }
 bool browserAudioActive() { return queue.active(); }
 void browserAudioPush(const int16_t* samples, size_t count) { queue.push(samples, count * sizeof(int16_t)); }
 void browserAudioStop() {

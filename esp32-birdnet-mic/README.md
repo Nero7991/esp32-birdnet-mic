@@ -8,7 +8,7 @@ Arduino firmware for Seeed XIAO ESP32 I2S and experimental PDM microphones that 
 **RTSP** for **BirdNET-Go** and **BirdNET-Pi**. It also provides a Web UI, JSON API, MQTT telemetry,
 and Home Assistant MQTT Discovery.
 
-- Latest firmware: **v1.33** (2026-10-21)
+- Latest firmware: **v1.34** (2026-10-22)
 - [Overview, support status and parts](../README.md) · [Release history](CHANGELOG.md)
 - Build targets: Seeed Studio **XIAO ESP32-C3**, **XIAO ESP32-S3**, **XIAO ESP32-C5**, **XIAO ESP32-C6**
 - Runtime-tested board: Seeed Studio **XIAO ESP32-C6**
@@ -20,17 +20,38 @@ and Home Assistant MQTT Discovery.
 - Manual OTA firmware: `../manual-ota-firmware/firmware-app-<board>.bin` (`firmware-app.bin` remains the C6 alias)
 - License: MIT (`../LICENSE`)
 
-## Experimental S3 board selection (since v1.32)
+## S3 board selection (since v1.32)
 
-🟡 **Experimental — needs more testing:** XIAO ESP32-S3 Sense and M5Stack AtomS3U
-use the shared **S3 firmware**. Open **Audio → S3 board** in the device Web UI,
+**XIAO ESP32-S3 Sense and M5Stack AtomS3U** use the shared **S3 firmware**.
+AtomS3U was contributor-tested with BirdNET-Go on v1.33; Sense remains
+**Experimental — needs more testing**. Maintainer hardware validation is pending. Open **Audio → S3 board** in the device Web UI,
 select the board, and click **Apply board**. Its built-in PDM microphone runs at
 48 kHz; the selection is saved across restarts and OTA updates. Adjust Gain using
 the signal meter and Listen.
 
 The **XIAO ESP32-S3 / Plus (default)** option keeps the usual wiring
 and microphone-format selection. The selector is shown only in S3 firmware.
-For an external microphone on a Sense board, use the default option.
+The Sense profile also accepts external I2S microphones using the normal S3 wiring.
+PDM in that profile uses the built-in microphone. For an external PDM microphone,
+use the default board option.
+
+## C5 PSRAM audio buffers (v1.34)
+
+The build helper enables C5 PSRAM by default. The RTSP reserve uses 64 KiB and
+browser listening uses 32 KiB of PSRAM. DMA, PDM filter and capture/RTP working
+buffers stay in internal RAM. If PSRAM is disabled, unavailable or an allocation
+fails, the existing adaptive internal reserve and 4 KiB listening queue remain
+available. Internal Wi-Fi and producer-stack headroom is checked before capture.
+
+`/api/audio_status` reports `rb_in_psram`, `rb_capacity_bytes` and
+`listen_queue_bytes`. C5 PSRAM builds also expose `internal_heap_min_kb`,
+`psram_total_kb` and `psram_free_kb` in `/api/status`. The true internal-heap
+minimum captures brief memory dips that the sampled UI minimum can miss.
+
+Contributor testing of the patch on v1.33 ran for 9.2 hours with C5/IM73D122,
+with 0.09% ring drops and no DMA overruns or I2S errors. Internal heap briefly
+reached 11 KiB; this is useful hardware evidence, not a guarantee for every
+network or the final v1.34 integration. Maintainer C5 hardware validation is pending.
 
 ## Important URLs
 
@@ -580,12 +601,13 @@ tools/compile_firmware.sh --fqbn esp32:esp32:XIAO_ESP32C6 \
 |---|---|
 | XIAO ESP32-C3 | `esp32:esp32:XIAO_ESP32C3` |
 | XIAO ESP32-S3 | `esp32:esp32:XIAO_ESP32S3` |
-| XIAO ESP32-C5 | `esp32:esp32:XIAO_ESP32C5` |
+| XIAO ESP32-C5 | `esp32:esp32:XIAO_ESP32C5` (the helper adds `PSRAM=enabled`) |
 | XIAO ESP32-C6 | `esp32:esp32:XIAO_ESP32C6` |
 
 Change the FQBN and output folder together when building another board.
 The helper automatically enables LTO at compilation and linking for C3/C6 and isolates their
-Arduino core build artifacts. S3/C5 retain normal compilation. The all-board packaging script
+Arduino core build artifacts. For C5 it adds `PSRAM=enabled`, so the RTSP audio ring and the
+browser-listening queue use the board's 8 MB PSRAM. S3 retains normal compilation. The all-board packaging script
 and GitHub Actions use the same helper, so no per-release flag changes are needed.
 
 For OTA, open **Firmware update -> Upload compiled file** on the device and select
@@ -608,6 +630,8 @@ When changing the embedded Web UI, first regenerate its assets as described unde
 1. Open `esp32-birdnet-mic/esp32-birdnet-mic.ino`.
 2. Install an ESP32 Arduino core with support for the selected XIAO target.
 3. Select the matching board: *XIAO_ESP32C3*, *XIAO_ESP32S3*, *XIAO_ESP32C5*, or *XIAO_ESP32C6*.
+   For *XIAO_ESP32C5*, also set **Tools → PSRAM → Enabled**. Without it the C5 still works,
+   but with the adaptive internal-RAM audio buffer and listening queue (4 KB).
 4. Compile and upload over USB.
 
 Keep `build_opt.h` next to the `.ino`; it reduces the image size by disabling WiFiManager

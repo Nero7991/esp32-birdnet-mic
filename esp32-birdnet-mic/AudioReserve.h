@@ -11,6 +11,12 @@ static constexpr size_t kAllocationOverhead = 1024;
 // Only the minimum audio queue may use this lower, bounded Wi-Fi allowance.
 static constexpr size_t kC5MinimumHeapMargin = 64 * 1024;
 
+// An external audio ring still needs internal Wi-Fi memory and a producer stack.
+inline bool externalHeadroom(size_t freeHeap, size_t largestBlock) {
+    return freeHeap >= kHeapMargin + kProducerStackBytes + kAllocationOverhead &&
+           largestBlock >= kProducerStackBytes + kAllocationOverhead;
+}
+
 inline size_t minimumCapacity(size_t requested, size_t chunkBytes) {
     size_t minimum = chunkBytes * 4;
     if (minimum < 16384) minimum = 16384;

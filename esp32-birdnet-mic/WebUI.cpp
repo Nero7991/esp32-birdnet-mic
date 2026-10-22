@@ -14,6 +14,9 @@
 #include "AudioDiagnostics.h"
 #include "MicrophoneSignal.h"
 #include "BrowserAudio.h"
+#if defined(CONFIG_IDF_TARGET_ESP32C5) && CONFIG_SPIRAM
+#include <esp_heap_caps.h>
+#endif
 #include "MicrophoneProfiles.h"
 #include "WifiAp.h"
 #include "ThermalRecovery.h"
@@ -47,6 +50,7 @@ extern uint32_t audioRingBufferFlushCount;
 extern uint32_t rtspWriteStallCount;
 extern uint32_t rtspWriteTimeoutCount;
 extern size_t audioRingBufferCapacityBytes;
+extern bool audioRingInPsram;
 extern volatile bool audioProducerRunning;
 extern volatile bool audioProducerStopRequested;
 extern volatile uint32_t audioProducerLastReadMs;
@@ -910,6 +914,12 @@ static void httpStatus() {
     json += "\"wifi_tx_dbm\":" + String(wifiPowerLevelToDbm(currentWifiPowerLevel),1) + ",";
     json += "\"free_heap_kb\":" + String(freeHeap/1024) + ",";
     json += "\"min_free_heap_kb\":" + String(minFreeHeap/1024) + ",";
+#if defined(CONFIG_IDF_TARGET_ESP32C5) && CONFIG_SPIRAM
+    const uint32_t internalCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    json += "\"internal_heap_min_kb\":" + String((uint32_t)(heap_caps_get_minimum_free_size(internalCaps)/1024)) + ",";
+    json += "\"psram_total_kb\":" + String(ESP.getPsramSize()/1024) + ",";
+    json += "\"psram_free_kb\":" + String(ESP.getFreePsram()/1024) + ",";
+#endif
     json += "\"uptime\":\"" + uptimeStr + "\",";
     json += "\"time_synced\":" + String(timeSynced?"true":"false") + ",";
     json += "\"time_sync_enabled\":" + String(timeSyncEnabled?"true":"false") + ",";
@@ -1013,6 +1023,8 @@ static void httpAudioStatus() {
     json += "\"browser_listening\":" + String(browserAudioActive() ? "true" : "false") + ",";
     json += "\"i2s_error_count\":" + String(audioI2SErrorCount) + ",";
     json += "\"rb_capacity_bytes\":" + String((uint32_t)audioRingBufferCapacityBytes) + ",";
+    json += "\"rb_in_psram\":" + String(audioRingInPsram ? "true" : "false") + ",";
+    json += "\"listen_queue_bytes\":" + String((uint32_t)browserAudioQueueBytes()) + ",";
     json += "\"rb_chunks\":" + String(audioRingBufferChunkCount) + ",";
     json += "\"rb_drops\":" + String(audioRingBufferDropCount.load(std::memory_order_relaxed)) + ",";
     json += "\"rb_flushes\":" + String(audioRingBufferFlushCount) + ",";

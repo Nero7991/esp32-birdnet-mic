@@ -32,7 +32,8 @@ class S3BoardsTests(unittest.TestCase):
     def test_actual_switch_transaction_routing_and_recovery(self):
         helpers = '\n'.join(function(SKETCH, sig) for sig in (
             'bool builtinMicSelected()', 'bool micBoardFormatAllowed(uint8_t format)',
-            'void updateS3BoardIdentity()', 'bool applyS3BoardConfig(uint8_t variant)'))
+            'void updateS3BoardIdentity()', 'bool applyS3BoardConfig(uint8_t variant)',
+            'bool applyMicFormatConfig(uint8_t newFormat)'))
         self.native(r'''
 #include "S3Boards.h"
 #include <cassert>
@@ -53,6 +54,7 @@ void stopAudioProducer(){stopped=true;++stops;}
 bool restartI2S(){assert(stopped);++restarts;bool ok=results.front();results.erase(results.begin());return ok;}
 uint16_t normalizeHighpassCutoff(uint32_t rate,uint16_t cutoff){return cutoff<rate/2?cutoff:rate/2-1;}
 uint32_t computeRecommendedMinRate(){return currentSampleRate/1024;}
+bool pdmMicSupported(){return true;}
 void simplePrintln(const char*){}
 ''' + helpers + r'''
 int main(){
@@ -70,14 +72,25 @@ int main(){
  results={true};assert(applyS3BoardConfig(1));
  assert(s3BoardVariant==1&&micFormat==2&&currentSampleRate==48000&&highpassCutoffHz==23999);
  assert(!strcmp(FW_BOARD_ID_STR,"xiao-esp32s3-sense"));
- assert(!micBoardFormatAllowed(0)&&!micBoardFormatAllowed(1)&&micBoardFormatAllowed(2));
+ assert(micBoardFormatAllowed(0)&&micBoardFormatAllowed(1)&&micBoardFormatAllowed(2));
+ micFormat=0;assert(!builtinMicSelected());micFormat=2;assert(builtinMicSelected());
  int count=restarts;results={true};assert(applyS3BoardConfig(2)&&restarts==count+1);
  assert(!strcmp(FW_BOARD_NAME_STR,"M5Stack AtomS3U"));
+ assert(!micBoardFormatAllowed(0)&&!micBoardFormatAllowed(1)&&micBoardFormatAllowed(2));
  results={false,true};assert(!applyS3BoardConfig(0)&&s3BoardVariant==2);
  assert(!strcmp(FW_BOARD_ID_STR,"m5stack-atoms3u"));
  autoThresholdEnabled=false;minAcceptableRate=77;results={true};assert(applyS3BoardConfig(0));
  assert(micFormat==2&&currentSampleRate==48000&&minAcceptableRate==77&&micBoardFormatAllowed(0));
  assert(!strcmp(FW_BOARD_ID_STR,"xiao-esp32s3"));
+ results={true};assert(applyS3BoardConfig(1));
+ results={false,true};assert(!applyMicFormatConfig(0)&&micFormat==2&&s3BoardVariant==1);
+ for(uint8_t format:{0,1,2}){
+  results={true};assert(applyMicFormatConfig(format));
+  assert(micFormat==format&&s3BoardVariant==1);
+  assert(builtinMicSelected()==(format==2));
+ }
+ results={true};assert(applyS3BoardConfig(2));
+ count=restarts;assert(!applyMicFormatConfig(0)&&!applyMicFormatConfig(1)&&restarts==count);
 }
 ''')
 
@@ -93,13 +106,13 @@ bool settingsRepaired=false;
 constexpr uint8_t MIC_FORMAT_PDM=2;
 struct {uint8_t getUChar(const char*,uint8_t){return saved;}} audioPrefs;
 void updateS3BoardIdentity(){}
-bool s3BoardSelectionSupported(){return ''' + str(supported).lower() + ';}\n' + function(SKETCH, 'bool builtinMicSelected()') + '\nvoid boot(){' + SKETCH[start:end] + r'''
+bool s3BoardSelectionSupported(){return ''' + str(supported).lower() + ';}\n' + function(SKETCH, 'bool micBoardFormatAllowed(uint8_t format)') + '\nvoid boot(){' + SKETCH[start:end] + r'''
 }
 int main(){
- for(int value=0;value<256;++value){
-  saved=value;micFormat=0;settingsRepaired=false;boot();
-  if(s3BoardSelectionSupported()&&value<=2){assert(s3BoardVariant==value);assert(micFormat==(value?2:0));}
-  else assert(s3BoardVariant==0&&micFormat==0);
+ for(int fmt=0;fmt<3;++fmt)for(int value=0;value<256;++value){
+  saved=value;micFormat=fmt;settingsRepaired=false;boot();
+  if(s3BoardSelectionSupported()&&value<=2){assert(s3BoardVariant==value);assert(micFormat==(value==2?2:fmt));}
+  else assert(s3BoardVariant==0&&micFormat==fmt);
  }
 }
 ''')
