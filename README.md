@@ -1,56 +1,54 @@
 <p align="center">
-  <img src="assets/birdlogo.png" alt="ESP32 RTSP Mic" width="240" />
+  <img src="assets/birdlogo.png" alt="BirdNETMic ESP32 Wi-Fi RTSP microphone for BirdNET-Go and BirdNET-Pi" width="240" />
 </p>
 
-# ESP32 RTSP Mic for BirdNET
+# BirdNETMic — ESP32 Wi-Fi RTSP Microphone for BirdNET-Go and BirdNET-Pi
 
-Turn a **Seeed Studio XIAO ESP32** and a digital microphone into a Wi-Fi microphone
-for **BirdNET-Go**, **BirdNET-Pi**, VLC or ffmpeg. Listen in your browser, adjust settings
-and check device health without installing an app.
+**BirdNETMic** is open-source ESP32 microphone firmware for **bird sound recording and
+bird identification with BirdNET-Go and BirdNET-Pi**. Stream mono PCM audio over Wi-Fi
+using RTSP, listen in your browser, and configure the microphone through a local Web UI.
+VLC and ffmpeg can receive the audio too.
+
+Use a **Seeed Studio XIAO ESP32-C3, S3, C5 or C6** with an I2S or PDM microphone,
+or choose the **M5Stack AtomS3U** with its built-in microphone for the easiest setup
+without soldering. **XIAO ESP32-S3 Sense** support is experimental and hardware-untested.
 
 **Latest firmware: v1.34** · [Latest published release](https://github.com/Sukecz/esp32-birdnet-mic/releases/latest)
 · [Web flasher](https://esp32mic.msmeteo.cz) · [Changelog](esp32-birdnet-mic/CHANGELOG.md)
 
-## What's new in 1.34
+## Contents
 
-- **C5 PSRAM:** move the RTSP audio reserve to 64 KiB and browser-listening queue to 32 KiB in PSRAM, keeping capture/PDM working buffers in internal RAM and preserving the internal-RAM fallback.
-- **Sense external microphones:** the Sense board profile now accepts external I2S microphones; PDM uses its built-in microphone.
-- **AtomS3U:** contributor-tested with BirdNET-Go on v1.33; existing GPIO routing and left PDM slot are retained. Sense hardware validation remains pending.
-- Report audio buffer placement, queue size and C5 PSRAM/internal-memory diagnostics through the API.
+- [Features](#features)
+- [Support at a glance](#support-at-a-glance)
+- [Recommended hardware](#recommended-hardware)
+- [Quick start](#quick-start)
+- [Microphones and wiring](#microphones-and-wiring)
+- [Everyday use and troubleshooting](#everyday-use-and-troubleshooting)
+- [Frequently asked questions](#frequently-asked-questions)
+- [Build from source](#build-from-source)
+- [More documentation](#more-documentation)
 
-## What's new in 1.33
+## Features
 
-- **Manual recovery:** switch thermal protection OFF, then acknowledge a shutdown immediately without waiting for cooling.
+- **Wi-Fi audio for BirdNET:** two configurable RTSP streams with mono 16-bit PCM/L16
+  output; TCP for BirdNET-Go and UDP for BirdNET-Pi.
+- **I2S and PDM microphones:** external digital microphones on XIAO C3/S3/C5/C6,
+  plus the tested built-in PDM microphone on M5Stack AtomS3U. PDM output is 48 kHz.
+- **Listen and tune in your browser:** live playback, volume control, signal meter,
+  gain, high-pass filter and optional recommended microphone settings.
+- **Local Web UI and diagnostics:** grouped settings with save/discard feedback,
+  logs, JSON API, microphone flatline detection and audio/stream health.
+- **Home automation and schedules:** MQTT, Home Assistant discovery, local-time
+  streaming windows and optional deep sleep outside the schedule.
+- **Thermal protection and recovery:** capture pauses during a shutdown or OTA.
+  Optional automatic recovery waits for cooling; with protection explicitly OFF,
+  a saved shutdown can be acknowledged immediately.
+- **C5 PSRAM buffers:** 64 KiB RTSP reserve and 32 KiB browser queue when PSRAM is
+  available, with an internal-RAM fallback. Optional 240 MHz CPU setting on S3/C5.
+- **USB browser installation and OTA updates:** board-specific images; normal OTA
+  keeps saved settings and the existing partition layout, without USB migration.
 
-- **OTA and thermal recovery fix:** stop audio capture and I2S/PDM clocks during updates and thermal shutdowns; restore capture after a failed update.
-- Check temperature-driver errors and select an appropriate sensor range.
-- Recovery requires five continuous minutes at least **10 °C below the shutdown limit**. Existing shutdowns migrate without clearing their history or safety blocks.
-
-## What's new in 1.32
-
-- **Experimental S3 boards with built-in microphones:** XIAO ESP32-S3 Sense and M5Stack AtomS3U — **needs more testing**.
-- In S3 firmware, open **Audio → S3 board**, select the board and click **Apply board**. The built-in microphone uses 48 kHz PDM.
-- XIAO ESP32-S3 / Plus with an external microphone remains the default. Board selection is saved across restarts and OTA updates.
-
-## What's new in 1.31
-
-- Review recommended microphone settings for your board before applying, or keep your saved values.
-- Unsaved indicators clear when an edit returns to its saved value.
-- Optional 240 MHz CPU setting on S3/C5.
-- Fix C5 audio startup/reconfiguration when internal RAM is limited, for both I2S and PDM.
-- Free 12 KiB of C5 RAM by sizing the browser-listening queue to 4 KiB.
-- Document PDM gain settings when upgrading from the contributor's v15 firmware.
-
-## What's new in 1.30
-
-- **Redesigned Web UI:** collapsible sections, clear device status and save/discard feedback.
-- **Browser listening:** Listen/Stop and playback volume, alongside your BirdNET streams.
-- **Experimental PDM support:** IM73D122 on XIAO C3/S3/C5/C6, with mono 48 kHz output.
-- **Better diagnostics:** microphone flatline detection, audio-processing load and capture errors.
-- **Optional recovery after cooling:** streaming can resume automatically after a thermal shutdown.
-- **Audio and OTA improvements:** integer audio processing, adaptive memory reserve and smaller C3/C6 builds.
-
-Normal OTA updates keep the existing partition layout and saved settings. No USB migration is required.
+See the [changelog](esp32-birdnet-mic/CHANGELOG.md) for version-by-version changes.
 
 ## Support at a glance
 
@@ -61,7 +59,9 @@ Normal OTA updates keep the existing partition layout and saved settings. No USB
 | Feature | Status | Details |
 |---|---|---|
 | I2S microphones | 🟢 Supported | ICS-43434, SPH0645LM4H and INMP441; see microphone table |
-| PDM microphones | 🟡 Experimental | 48 kHz mono; physical validation of this integrated firmware is pending |
+| PDM microphones | 🟢 Supported | 48 kHz mono; contributor-tested configurations include C5 + IM73D122, C3 + Adafruit-compatible PDM and AtomS3U |
+| M5Stack AtomS3U | 🟢 Tested and working | Built-in PDM microphone; contributor-tested with BirdNET-Go on v1.33 |
+| XIAO ESP32-S3 Sense | 🟡 Experimental | Implemented, but not tested on physical Sense hardware |
 | PCM1808 external ADC | 🟡 Experimental | Audio remained noisy in testing; not recommended for a new build |
 | BirdNET-Go / BirdNET-Pi | 🟢 Supported | RTSP over TCP / UDP respectively |
 | Browser listening | 🟢 Supported | One browser listener, separate from RTSP client slots |
@@ -86,7 +86,21 @@ ICS-43434**; a successful build does not establish long-term hardware stability 
 
 ## Recommended hardware
 
-Choose **one ESP32 board and one microphone**, then add the accessories below.
+For the easiest start, choose **M5Stack AtomS3U**, which already includes a microphone.
+For a wired microphone build, choose **one XIAO ESP32 board and one external microphone**,
+then add the accessories below.
+
+### M5Stack AtomS3U — easiest setup, no soldering
+
+The [M5Stack AtomS3U](https://docs.m5stack.com/en/core/AtomS3U) combines an ESP32-S3,
+Wi-Fi, a PDM microphone and a USB-A connector. No external microphone, microphone
+wires or soldering are needed. **Tested and working with BirdNET-Go**;
+see the [contributor's hardware test](https://github.com/Sukecz/esp32-birdnet-mic/pull/62#issuecomment-6326944252).
+
+Plug it into a computer, install the **S3 firmware** with the web flasher, configure
+Wi-Fi, then select **Audio → S3 board → M5Stack AtomS3U → Apply board**.
+Start with **Gain 24**, check Listen, and copy the RTSP URL into BirdNET-Go or BirdNET-Pi.
+After setup, a USB power supply keeps it running without the computer.
 
 ### ESP32 boards
 
@@ -99,7 +113,7 @@ Choose **one ESP32 board and one microphone**, then add the accessories below.
 
 ### S3 boards with built-in microphones
 
-Available since v1.32. **AtomS3U is contributor-tested with BirdNET-Go on v1.33; Sense remains experimental and needs hardware testing.**
+**AtomS3U is tested and working; XIAO ESP32-S3 Sense remains experimental and hardware-untested.**
 
 Use the **S3 firmware** for **XIAO ESP32-S3 Sense** and **M5Stack AtomS3U**.
 In the device Web UI, open **Audio → S3 board**, select your board and click
@@ -112,19 +126,22 @@ microphone format below it as usual. The board selector appears only in S3 firmw
 On Sense, select an I2S microphone format to use an external microphone with the normal S3 wiring.
 PDM in the Sense profile uses the built-in microphone; use the default board profile for an external PDM microphone.
 
-| Board option | Microphone | Status |
-|---|---|---|
-| XIAO ESP32-S3 Sense | Built-in PDM; no microphone wiring needed | 🟡 Experimental — needs more testing |
-| M5Stack AtomS3U | Built-in PDM; no microphone wiring needed | Contributor-tested with BirdNET-Go on v1.33; maintainer hardware test pending |
+| Board option | Microphone | Status | Official link |
+|---|---|---|---|
+| M5Stack AtomS3U | Built-in PDM; no microphone wiring needed | 🟢 Tested and working with BirdNET-Go (contributor, v1.33) | [M5Stack store](https://shop.m5stack.com/products/atoms3u) · [Documentation](https://docs.m5stack.com/en/core/AtomS3U) |
+| XIAO ESP32-S3 Sense | PDM microphone on the Sense expansion board | 🟡 Experimental — not hardware-tested | [Seeed Studio](https://www.seeedstudio.com/XIAO-ESP32S3-Sense-p-5639.html) · [Setup guide](https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/) |
+
+For Sense, fit the microphone expansion board as described in the manufacturer's guide.
+Its camera and SD-card slot are not used by BirdNETMic.
 
 ### Microphones
 
 | Choice | Microphone | Interface | Notes / link |
 |---|---|---|---|
 | ⭐ **Recommended** | **Adafruit SPH0645LM4H** | I2S | Contributor-tested; select **MSB / left-justified**. [Adafruit #3421](https://www.adafruit.com/product/3421) |
-| 🏆 **Best quality** | **Infineon IM73D122 breakout** | PDM · 🟡 Experimental | Low-noise option with **73 dB(A) SNR**; integrated hardware validation is pending. [Example module](https://www.aliexpress.com/item/1005010674767599.html) |
-| Alternative PDM | **Adafruit PDM MEMS Microphone Breakout** / **MP34DT01-M** | PDM · 🟡 Experimental | Contributor-reported compatible; **61 dB SNR**. [Adafruit #3492](https://www.adafruit.com/product/3492) |
-| Alternative PDM | **MP34DT01 PDM MEMS modules** | PDM · 🟡 Experimental | Generic breakouts are contributor-reported compatible; check the exact chip, supply and pinout. Search by **MP34DT01**. |
+| 🏆 **Best quality** | **Infineon IM73D122 breakout** | PDM | Contributor-tested on C5; low-noise option with **73 dB(A) SNR**. [Example module](https://www.aliexpress.com/item/1005010674767599.html) |
+| Alternative PDM | **Adafruit PDM MEMS Microphone Breakout** / **MP34DT01-M** | PDM | Contributor-reported compatible; an Adafruit-compatible PDM breakout was tested on C3. **61 dB SNR** for MP34DT01-M. [Adafruit #3492](https://www.adafruit.com/product/3492) |
+| Alternative PDM | **MP34DT01 PDM MEMS modules** | PDM | Generic breakouts are contributor-reported compatible; check the exact chip, supply and pinout. Search by **MP34DT01**. |
 | Existing builds | **ICS-43434** | I2S | Maintainer-tested reference; select **Philips I2S**. [TDK product status](https://product.tdk.com/en/search/sw_piezo/mic/mems-mic/info?part_no=ICS-43434) |
 | Existing builds | **INMP441** | I2S | [User-reported compatible](https://github.com/Sukecz/esp32-birdnet-mic/discussions/25); select **Philips I2S**. [TDK product status](https://product.tdk.com/en/search/sw_piezo/mic/mems-mic/info?part_no=INMP441) |
 
@@ -132,7 +149,7 @@ PDM in the Sense profile uses the built-in microphone; use the default board pro
 [73 dB(A) SNR](https://www.infineon.com/product-table/mems-microphones) compares with
 [65 dB(A) for SPH0645LM4H](https://cdn-shop.adafruit.com/product-files/3421/i2S%20Datasheet.PDF).
 These are component specifications; final audio also depends on the breakout, wiring,
-placement and PDM conversion. PDM support remains experimental.
+placement and PDM conversion. Hardware test coverage is described in the [PDM notes](#pdm-microphones).
 
 Adafruit #3492 uses the [MP34DT01-M](https://learn.adafruit.com/adafruit-pdm-microphone-breakout/downloads);
 **it is a different microphone from IM73D122**. Both use the existing **PDM microphone (IM73D122)**
@@ -157,17 +174,24 @@ Power the microphone from **3V3**, following its breakout specification.
 
 ## Quick start
 
-1. Choose a board and microphone from the [recommended hardware](#recommended-hardware), then wire it with power disconnected.
-2. Connect the XIAO by **USB-C data cable**. Open the [web flasher](https://esp32mic.msmeteo.cz)
+1. Choose [AtomS3U for a setup without soldering](#m5stack-atoms3u--easiest-setup-no-soldering),
+   or wire a XIAO and external microphone with power disconnected.
+2. Plug AtomS3U into USB-A, or connect the XIAO by **USB-C data cable**. Open the [web flasher](https://esp32mic.msmeteo.cz)
    in desktop Chrome or Edge, click **Flash**, and select the device. Chip detection selects the image;
-   the supplied firmware is intended for XIAO boards.
+   use the shared S3 image for AtomS3U and Sense.
 3. Join **ESP32-RTSP-Mic-AP**. Open `http://192.168.4.1` if the setup page does not appear,
    then save your Wi-Fi details.
 4. Open `http://<device-ip>/` using the address shown in your router's device list.
-5. In **Audio → Microphone format**, select your microphone and apply. Review the recommended
-   settings and save, or keep your saved values. Follow the PDM steps below if applicable.
+5. On AtomS3U or Sense, select the matching **Audio → S3 board → Apply board** option.
+   For external microphones, select **Audio → Microphone format** and apply. Review the
+   recommended settings and save, or keep your saved values. Check Gain for your microphone.
 6. Press **Listen** to check the sound. In **Streams**, enable a stream, choose BirdNET-Go or
    BirdNET-Pi, and copy its URL into that system. Stream 1 is enabled by default; Stream 2 is optional.
+
+### Connect to BirdNET-Go or BirdNET-Pi
+
+Copy the matching URL into the receiving system's RTSP audio-source settings.
+Select **BirdNET-Go (TCP)** or **BirdNET-Pi (UDP)** as the stream target in the device Web UI.
 
 ```text
 rtsp://<device-ip>:8554/audio1    Stream 1 (default target: BirdNET-Go)
@@ -207,7 +231,7 @@ Use the **printed XIAO pin labels** below on C3/S3/C5/C6; GPIO numbers differ be
 Leave D7 unused for these microphones. See the [GPIO table and PCM1808 notes](esp32-birdnet-mic/README.md#i2s-wiring)
 for advanced setups. Use **3.3 V**, not 5 V, for the microphone.
 
-### PDM microphone — 🟡 Experimental
+### PDM microphones
 
 IM73D122, Adafruit PDM (#3492 / MP34DT01-M) and compatible MP34DT01 breakouts use
 **different wiring from I2S**. Use the PDM selection for all of them; the Web UI label
@@ -234,10 +258,14 @@ and use 160 MHz CPU in Thermal management.** The default packet size is already 
 choosing **Keep saved values and save** preserves a previously saved larger size. The firmware reduces its internal audio
 reserve when RAM is limited; this does not automatically change the packet-size setting.
 
-S3 uses hardware PDM conversion; C3/C5/C6 use software conversion. Contributor hardware
-tests used the contributing firmware. Physical microphone and long-running tests of this integrated
-release are still pending, so PDM remains experimental on all four boards.
-[Detailed PDM notes](esp32-birdnet-mic/README.md#pdm-microphones-experimental).
+S3 uses hardware PDM conversion; C3/C5/C6 use software conversion. **PDM has been
+tested on physical hardware**, including the AtomS3U built-in microphone on v1.33,
+C3 with an Adafruit-compatible PDM breakout on v1.33, and C5 with IM73D122 and the
+PSRAM patch later integrated into v1.34. The contributor's C5 run lasted 9.2 hours.
+These reports establish working configurations, not testing of every microphone/board
+combination. Maintainer runtime testing primarily covers C6 with I2S;
+**Sense remains experimental and hardware-untested**.
+[Detailed PDM notes](esp32-birdnet-mic/README.md#pdm-microphones).
 
 ## Everyday use and troubleshooting
 
@@ -256,6 +284,26 @@ release are still pending, so PDM remains experimental on all four boards.
 
 Keep the device on a trusted LAN: HTTP/RTSP have no built-in user authentication or TLS.
 For setup details, schedules, MQTT and API examples, see the [firmware guide](esp32-birdnet-mic/README.md).
+
+## Frequently asked questions
+
+### Which ESP32 microphone is easiest to set up for BirdNET?
+
+**M5Stack AtomS3U** is the easiest option here: its microphone is built in, so no
+soldering or microphone wiring is needed. Install the S3 firmware, configure Wi-Fi
+and select the AtomS3U board profile. XIAO boards with an external microphone offer
+more choice of microphone and placement.
+
+### Does BirdNETMic identify birds on the ESP32?
+
+BirdNETMic captures and streams sound. **BirdNET-Go or BirdNET-Pi** on the receiving
+computer performs bird identification and recording. The microphone only needs
+Wi-Fi and power after setup.
+
+### Can I use the Sense camera or record to its SD card?
+
+This firmware provides network audio. Sense camera capture and SD-card recording
+are not implemented; the Sense microphone profile is experimental and untested.
 
 ## Build From Source
 

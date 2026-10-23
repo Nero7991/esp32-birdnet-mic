@@ -1,18 +1,25 @@
-# Web flasher and firmware files
+# BirdNETMic Web Flasher — ESP32 Microphone USB Installation and OTA Updates
 
 **Firmware: 1.34** (2026-10-22).
 
 Install using [esp32mic.msmeteo.cz](https://esp32mic.msmeteo.cz) in desktop **Chrome or Edge**
 with a USB **data** connection (AtomS3U plugs directly into USB-A). The flasher detects the ESP chip family and chooses the image for
-XIAO ESP32-C3/S3/C5/C6. It cannot distinguish other board designs using the same chip.
+XIAO ESP32-C3/S3/C5/C6. AtomS3U and Sense also use the S3 image; chip detection
+cannot distinguish these board designs, so select the matching profile after installation.
 
 **XIAO ESP32-S3 Sense / M5Stack AtomS3U:** use the S3 image, then open
 **Audio → S3 board** in the device Web UI, select your board and click **Apply board**.
-AtomS3U is contributor-tested with BirdNET-Go on v1.33. Sense remains
-**Experimental — needs more testing**; its profile also accepts external I2S microphones.
+**[M5Stack AtomS3U](https://docs.m5stack.com/en/core/AtomS3U) is tested and working**
+with BirdNET-Go (contributor, v1.33). It is the easiest setup without soldering:
+plug into USB-A, install S3 firmware, configure Wi-Fi and apply the AtomS3U profile.
+Its microphone is built in; start with Gain 24 and check Listen.
+**[XIAO ESP32-S3 Sense](https://www.seeedstudio.com/XIAO-ESP32S3-Sense-p-5639.html)
+is experimental and hardware-untested**; its profile also accepts external I2S microphones.
 
 For wiring, microphone selection and feature status, see the [main guide](../README.md).
-PDM (IM73D122 / Adafruit PDM / MP34DT01) is **🟡 Experimental**; C3/C5 should use **512 samples per packet** and **160 MHz**.
+PDM is supported, with contributor hardware tests on AtomS3U, C5 + IM73D122 and
+C3 + an Adafruit-compatible PDM breakout. See the [PDM test coverage](../esp32-birdnet-mic/README.md#pdm-microphones)
+for tested versions and limits. C3/C5 should use **512 samples per packet** and **160 MHz**.
 Keeping saved values preserves the packet size; **Recommended settings** applies 512.
 
 ## Choose the right file

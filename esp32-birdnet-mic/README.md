@@ -2,16 +2,16 @@
   <img src="../assets/birdlogo.png" alt="ESP32 RTSP Mic for BirdNET-Go / BirdNET-Pi" width="240" />
 </p>
 
-# birdnet-esp32-rtsp-mic Firmware
+# BirdNETMic Firmware — ESP32 RTSP Audio for BirdNET-Go and BirdNET-Pi
 
-Arduino firmware for Seeed XIAO ESP32 I2S and experimental PDM microphones that serve **mono 16-bit PCM/L16** audio over
+Arduino firmware for Seeed Studio XIAO ESP32 and M5Stack AtomS3U, using I2S or PDM microphones to serve **mono 16-bit PCM/L16** audio over
 **RTSP** for **BirdNET-Go** and **BirdNET-Pi**. It also provides a Web UI, JSON API, MQTT telemetry,
 and Home Assistant MQTT Discovery.
 
 - Latest firmware: **v1.34** (2026-10-22)
 - [Overview, support status and parts](../README.md) · [Release history](CHANGELOG.md)
 - Build targets: Seeed Studio **XIAO ESP32-C3**, **XIAO ESP32-S3**, **XIAO ESP32-C5**, **XIAO ESP32-C6**
-- Runtime-tested board: Seeed Studio **XIAO ESP32-C6**
+- Maintainer runtime reference: **XIAO ESP32-C6 + ICS-43434**; contributor-tested PDM setups include **M5Stack AtomS3U**, **C5 + IM73D122** and **C3 + Adafruit-compatible PDM**
 - Recommended microphone: **Adafruit SPH0645LM4H** in selectable MSB / left-justified mode
 - Legacy microphones: **ICS-43434/INMP441** in default Philips I2S mode
 - User-facing overview and wiring: `../README.md`
@@ -20,14 +20,32 @@ and Home Assistant MQTT Discovery.
 - Manual OTA firmware: `../manual-ota-firmware/firmware-app-<board>.bin` (`firmware-app.bin` remains the C6 alias)
 - License: MIT (`../LICENSE`)
 
-## S3 board selection (since v1.32)
+## Current firmware overview
 
-**XIAO ESP32-S3 Sense and M5Stack AtomS3U** use the shared **S3 firmware**.
-AtomS3U was contributor-tested with BirdNET-Go on v1.33; Sense remains
-**Experimental — needs more testing**. Maintainer hardware validation is pending. Open **Audio → S3 board** in the device Web UI,
+- Two RTSP streams, browser listening, gain/HPF and recommended microphone settings.
+- Local Web UI with save/discard feedback, JSON API, logs and microphone/stream diagnostics.
+- MQTT, Home Assistant discovery, local-time schedules and optional deep sleep.
+- Hardware PDM conversion on S3; software PDM conversion on C3/C5/C6; mono 48 kHz output.
+- C5 PSRAM audio buffers with an internal-memory fallback; optional 240 MHz on S3/C5.
+- Capture pauses during OTA and thermal shutdown; optional recovery after cooling and
+  immediate manual acknowledgement when thermal protection is explicitly OFF.
+- Board-specific USB installation and OTA updates that preserve saved settings and partitions.
+
+See the [changelog](CHANGELOG.md) for the version-by-version history and
+the [main guide](../README.md) for hardware choices, quick start and wiring.
+
+## S3 board selection: AtomS3U and XIAO ESP32-S3 Sense
+
+[M5Stack AtomS3U](https://docs.m5stack.com/en/core/AtomS3U) and
+[XIAO ESP32-S3 Sense](https://www.seeedstudio.com/XIAO-ESP32S3-Sense-p-5639.html)
+use the shared **S3 firmware**. **AtomS3U is tested and working with BirdNET-Go**
+([contributor test on v1.33](https://github.com/Sukecz/esp32-birdnet-mic/pull/62#issuecomment-6326944252));
+it is the easiest setup without soldering or external microphone wiring.
+**Sense remains experimental and has not been tested on physical hardware.**
+Open **Audio → S3 board** in the device Web UI,
 select the board, and click **Apply board**. Its built-in PDM microphone runs at
 48 kHz; the selection is saved across restarts and OTA updates. Adjust Gain using
-the signal meter and Listen.
+the signal meter and Listen; **Gain 24** is a starting point for AtomS3U.
 
 The **XIAO ESP32-S3 / Plus (default)** option keeps the usual wiring
 and microphone-format selection. The selector is shown only in S3 firmware.
@@ -109,20 +127,6 @@ POST requests require the existing `X-ESP32MIC-CSRF: 1` header. Saving reconnect
 
 Default hostname is unique per device, for example `esp32mic-a1b2c3`.
 
-## What's new in 1.31
-
-C5 frees 12 KiB of static RAM by using a 4 KiB browser-listening queue. Audio startup
-and reconfiguration can use the minimum capture reserve with a bounded 64 KiB Wi-Fi
-allowance when the normal 80 KiB allowance cannot fit. This fixes the reported C5
-boot loop for I2S and PDM. See the [changelog](CHANGELOG.md) for validation limits.
-
-## What's new in 1.30
-
-Redesigned collapsible Web UI, browser listening, experimental IM73D122 PDM support,
-microphone signal monitoring, optional recovery after cooling, audio diagnostics and improved
-memory use. Normal OTA preserves the existing partition layout and saved settings.
-See the [changelog](CHANGELOG.md) for the complete history.
-
 ## Hardware
 
 ### I2S Wiring
@@ -168,9 +172,11 @@ pipeline. **Testing has not yet produced clean audio without noise**, so PCM1808
 experimental and is not recommended for a new build. No purchase link is provided. Signal level,
 I2S Shift, analog gain and noise performance need further investigation on the complete setup.
 
-### PDM microphones (experimental)
+<a id="pdm-microphones-experimental"></a>
 
-🟡 **Experimental on all four boards.** See the [microphone comparison](../README.md#microphones)
+### PDM microphones
+
+**Supported, with contributor hardware tests.** See the [microphone comparison](../README.md#microphones)
 for the recommended I2S option and the **Best quality** IM73D122 PDM option.
 
 PDM choices include **IM73D122**, **Adafruit PDM MEMS Microphone Breakout #3492 (MP34DT01-M)**
@@ -215,7 +221,8 @@ Use **512 samples per packet on C3/C5**. Larger buffers consume more RAM; the au
 now adapts to available internal heap, normally retaining 80 KiB for Wi-Fi/TCP plus the producer task
 and allocation overhead. If that cannot fit, C5 alone may use the minimum reserve while still
 retaining 64 KiB plus the task and overhead; insufficient or fragmented memory is rejected.
-The C5 browser-listening queue uses 4 KiB (about 43 ms at 48 kHz); other boards use 16 KiB.
+The C5 browser-listening queue uses 32 KiB in PSRAM when available, or 4 KiB
+(about 43 ms at 48 kHz) with the internal-memory fallback; other boards use 16 KiB.
 A slow browser listener is disconnected so it cannot block RTSP. C6/S3 retain the full reserve when memory permits. The API reports
 its actual size as `rb_capacity_bytes` and recommends 512 on C3/C5 via
 `buffer_size_recommended`. Saved packet sizes are preserved when keeping saved values or using the legacy microphone API. If you previously selected
@@ -226,13 +233,20 @@ PDM retains 48 kHz and a fixed PCM scale; adjust Gain for PDM, while I2S Shift r
 When upgrading from the contributor's v15 PDM firmware, use **new Gain = old Gain × 2^(16 − old Shift)**
 as a starting point and check clipping: Shift 12 / Gain 1.5 becomes Gain 24. Saved Gain is
 not changed automatically.
-Contributor reports describe physical PDM tests on all four boards, including sustained C3/C5 streaming at
-512 samples; those tests used the contributed v15.6 firmware. Our integrated image still needs physical
-PDM validation on each board.
+Contributor reports now include physical tests of this project's firmware:
 
-Host signal/framing tests and board builds do not prove physical microphone compatibility.
-Maintainer PDM hardware/audio validation and long-running tests of the integrated firmware
-remain pending. PDM therefore stays experimental.
+| Tested configuration | Hardware evidence |
+|---|---|
+| M5Stack AtomS3U, built-in PDM | Working audio into BirdNET-Go on v1.33; [public test report](https://github.com/Sukecz/esp32-birdnet-mic/pull/62#issuecomment-6326944252) |
+| XIAO ESP32-C3 + Adafruit-compatible PDM breakout | Contributor's v1.33 setup, included in a 9–10-hour comparison run |
+| XIAO ESP32-C5 + IM73D122 | 9.2-hour run with the C5 PSRAM patch against v1.33, later integrated into v1.34; 0.09% ring drops, no DMA overruns or I2S errors |
+| XIAO ESP32-S3 Sense | Experimental; not tested on physical Sense hardware |
+
+Earlier contributor tests also covered all four XIAO boards using the v15.6 reference
+firmware. The reports above establish specific working configurations; they do not
+qualify every board/microphone combination or the final v1.34 image on each device.
+Maintainer runtime checks primarily use C6 with I2S. Host tests and successful builds
+are separate from physical microphone tests.
 
 Reference designs: the contributed PDM proposal and
 [PR #64](https://github.com/Sukecz/esp32-birdnet-mic/pull/64) (S3 hardware path).
