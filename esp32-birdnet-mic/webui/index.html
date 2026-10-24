@@ -18,6 +18,7 @@
 .gh.ota-ready{color:#fff7ed;background:#c2410c;border-color:#fb923c;box-shadow:0 0 0 3px rgba(251,146,60,.22)}
 .ota-notice{display:none;margin:0 0 14px;padding:15px 18px;border-radius:16px;text-decoration:none;color:#fff7ed;background:linear-gradient(120deg,#c2410c,#ea580c);border:2px solid #fdba74;box-shadow:0 12px 30px rgba(234,88,12,.28);font-size:16px;font-weight:900;text-align:center;letter-spacing:.01em}
 .ota-notice.show{display:block;animation:otaPulse 2.2s ease-in-out infinite}
+.space-notice{margin:0 0 14px;padding:12px 16px;border-radius:12px;border:1px solid var(--acc);background:rgba(14,165,233,.1)}
 @keyframes otaPulse{0%,100%{transform:scale(1);box-shadow:0 12px 30px rgba(234,88,12,.25)}50%{transform:scale(1.008);box-shadow:0 15px 38px rgba(234,88,12,.42)}}
 </style>
 <style>
@@ -96,7 +97,7 @@
 <div class='audio-strip'><a href='#audiosec' onclick="openSection('audiosec')" id='overview_level'>Level: —</a><span id='overview_rate'>— Hz</span><a href='#streamssec' onclick="openSection('streamssec')" id='overview_clients'>Clients: —</a><span id='overview_uptime'>Uptime: —</span></div>
 <div id='connection_status' role='status' aria-live='polite'></div>
 </div>
-<a href='/ota' id='ota_notice' class='ota-notice' aria-live='polite'></a><div id='thermal_notice' class='thermal-alert' role='alert' style='display:none'>
+<a href='/ota' id='ota_notice' class='ota-notice' aria-live='polite'></a><div id='update_space_notice' class='space-notice' hidden><a href='/ota'>Prepare this device for future firmware updates</a></div><div id='thermal_notice' class='thermal-alert' role='alert' style='display:none'>
 <strong id='thermal_notice_title'></strong>
 <p id='thermal_notice_detail'></p>
 <button id='btn_thermal_notice_ack' class='danger' onclick='clearThermalLatch()'></button>
@@ -1526,6 +1527,11 @@ async function toggleListen(){
 }
 window.addEventListener('pagehide',()=>stopListening());
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&listenSession)stopListening();});
+</script>
+<script>
+fetch('/api/update_space',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(s=>{
+  if(s&&['available','error','working','recovery_required','check_failed'].includes(s.state))document.getElementById('update_space_notice').hidden=false;
+}).catch(()=>{});
 </script>
 </body>
 </html>

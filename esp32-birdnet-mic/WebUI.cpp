@@ -24,6 +24,7 @@
 #include <vector>
 #include "WebUI_gz.h"
 #include "OtaAssets_gz.h"
+#include "FlashLayout.h"
 
 // External variables and functions from main (.ino) – ESP32 RTSP Mic for BirdNET-Go / BirdNET-Pi
 extern WiFiServer rtspServer;
@@ -133,6 +134,7 @@ static const char* OFFICIAL_OTA_HOST = "esp32mic.msmeteo.cz";
 static const uint32_t OTA_VERSION_CACHE_MS = 10UL * 60UL * 1000UL;
 static const uint32_t OTA_VERSION_ERROR_CACHE_MS = 60UL * 60UL * 1000UL;
 static bool otaUploadOk = false;
+static bool otaUploadBlocked = false;
 static String otaUploadError;
 static bool otaVersionChecked = false;
 static unsigned long otaVersionCheckedAtMs = 0;
@@ -198,11 +200,11 @@ extern String mqttClientId;
 
 static String getDefaultOtaUrl() {
     if (!FW_OTA_ARTIFACT_STR || FW_OTA_ARTIFACT_STR[0] == '\0') return String();
-    return String("http://") + OFFICIAL_OTA_HOST + "/" + FW_OTA_ARTIFACT_STR;
+    return String("http://") + OFFICIAL_OTA_HOST + "/updates/" + FW_OTA_ARTIFACT_STR;
 }
 
 static String getOtaVersionUrl() {
-    return String("http://") + OFFICIAL_OTA_HOST + "/ota-version.txt";
+    return String("http://") + OFFICIAL_OTA_HOST + "/updates/ota-version.txt";
 }
 extern uint16_t mqttPublishIntervalSec;
 extern bool mqttConnected;
@@ -287,8 +289,14 @@ static bool hasMutationAuth() {
     return false;
 }
 
-static bool requireMutationAuth() {
-    if (hasMutationAuth()) return true;
+static bool requireMutationAuth(bool preparation = false) {
+    if (hasMutationAuth()) {
+        if (!preparation && flashlayout::busy()) {
+            web.send(409, "application/json", "{\"ok\":false,\"error\":\"Update preparation is in progress. Please wait.\"}");
+            return false;
+        }
+        return true;
+    }
 
     web.sendHeader("Cache-Control", "no-cache");
     web.send(403, "application/json", "{\"ok\":false,\"error\":\"forbidden\"}");
@@ -329,7 +337,9 @@ static String htmlEscape(const String &s) {
     return o;
 }
 
-static void sendOtaPage(const String &message = String(), bool ok = true) {
+static void sendOtaPage(const String &message = String(), bool ok = true, int httpCode = 200) {
+    String preparationError;
+    const bool otaAllowed = flashlayout::otaAllowed(preparationError);
     String deviceUrl = "http://" + WiFi.localIP().toString() + "/ota";
     String defaultOtaUrl = getDefaultOtaUrl();
     bool versionChecked = false;
@@ -350,7 +360,9 @@ static void sendOtaPage(const String &message = String(), bool ok = true) {
     html += F("<meta name='viewport' content='width=device-width,initial-scale=1'>");
     html += F("<title>Firmware update</title><link rel='stylesheet' href='/ota.css'></head><body data-ota-checking='");
     html += versionChecking ? '1' : '0';
-    html += F("'><div id='ota-progress' class='ota-progress' role='alert' aria-live='assertive'><div class='ota-progress-box'><div class='spinner'></div><h2 id='ota-progress-title'>Installing firmware…</h2><p id='ota-progress-text'>Do not disconnect power or close this page.</p></div></div><div class='wrap'>");
+    html += F("' data-ota-allowed='");
+    html += otaAllowed ? '1' : '0';
+    html += F("'><div id='ota-progress' class='ota-progress' role='alert' aria-live='assertive'><div class='ota-progress-box'><div class='spinner'></div><h2 id='ota-progress-title'>Installing firmware…</h2><p id='ota-progress-text'>Do not disconnect power or close this page.</p><button type='button' id='ota-reconnect' hidden>Check connection again</button></div></div><div class='wrap'>");
     html += F("<div class='card'><h1>Firmware update</h1><p class='muted'>Device: <code>");
     html += htmlEscape(deviceUrl);
     html += F("</code><br>Current firmware: <strong>v");
@@ -367,6 +379,14 @@ static void sendOtaPage(const String &message = String(), bool ok = true) {
         html += htmlEscape(message);
         html += F("</div>");
     }
+#if FLASH_LAYOUT_TOOL
+    html += F("<div class='card' id='update-space' hidden><h2 id='update-space-title'>Prepare for future updates</h2><p class='muted' id='update-space-text'>Make more space for future firmware with one preparation step. Your settings are kept.</p><button type='button' id='update-space-prepare'>Prepare device</button><p class='muted' id='update-space-result' role='status' aria-live='polite'></p></div>");
+#endif
+    html += F("<p id='ota-preparation-required' class='msg' role='status'");
+    if (otaAllowed) html += F(" hidden");
+    html += F(">");
+    html += htmlEscape(preparationError);
+    html += F("</p>");
     html += F("<div class='card'><h2>Automatic update</h2><p class='muted'>Use this when the device has internet access. It downloads the latest board-specific app build from the project web flasher and installs it automatically.</p>");
     if (defaultOtaUrl.length()) {
         if (versionChecking) {
@@ -378,7 +398,9 @@ static void sendOtaPage(const String &message = String(), bool ok = true) {
         } else if (updateAvailable) {
             html += F("<div class='version-state update'>New firmware available: v");
             html += htmlEscape(latestVersion);
-            html += F("</div><form id='ota-install-form' method='post' action='/ota/install'><button type='submit'>Download and install v");
+            html += F("</div><form id='ota-install-form' method='post' action='/ota/install'><button type='submit'");
+            if (!otaAllowed) html += F(" disabled");
+            html += F(">Download and install v");
             html += htmlEscape(latestVersion);
             html += F("</button></form>");
         } else {
@@ -395,11 +417,15 @@ static void sendOtaPage(const String &message = String(), bool ok = true) {
     html += F("</div>");
     html += F("<div class='card'><h2>Upload compiled file</h2><p class='muted'>Use this when the device has no internet access. Select the matching app-only file such as <code>firmware-app-c3.bin</code>, <code>firmware-app-s3.bin</code>, <code>firmware-app-c5.bin</code>, or <code>firmware-app-c6.bin</code>. Do not upload the USB <code>firmware.bin</code> merged image here.</p>");
     html += F("<form id='ota-upload-form' method='post' action='/ota/upload' enctype='multipart/form-data'>");
-    html += F("<input type='file' name='firmware' accept='.bin,application/octet-stream' required><button type='submit'>Upload and install file</button></form></div>");
+    html += F("<input type='file' name='firmware' accept='.bin,application/octet-stream' required");
+    if (!otaAllowed) html += F(" disabled");
+    html += F("><button type='submit'");
+    if (!otaAllowed) html += F(" disabled");
+    html += F(">Upload and install file</button></form></div>");
     html += F("<script src='/ota.js'></script>");
     html += F("</div></body></html>");
     web.sendHeader("Cache-Control", "no-store");
-    web.send(200, "text/html; charset=utf-8", html);
+    web.send(httpCode, "text/html; charset=utf-8", html);
 }
 
 static bool isLikelyMergedFirmwareName(String filename) {
@@ -606,6 +632,7 @@ static bool isNewerFirmwareAvailable(const String &latestVersion) {
 }
 
 static bool streamUpdate(NetworkClient &stream, int contentLength, String &errorOut) {
+    if (!flashlayout::otaAllowed(errorOut)) return false;
     if (contentLength <= 0) {
         errorOut = F("Firmware server did not provide a valid Content-Length.");
         return false;
@@ -736,6 +763,11 @@ static void httpOtaPage() {
 
 static void httpOtaInstall() {
     if (!requireMutationAuth()) return;
+    String error;
+    if (!flashlayout::otaAllowed(error)) {
+        sendOtaPage(error, false, 409);
+        return;
+    }
 
     String latestVersion;
     String versionError;
@@ -753,7 +785,6 @@ static void httpOtaInstall() {
     }
 
     String url = getDefaultOtaUrl();
-    String error;
     bool ok = installOtaFromUrl(url, error);
     if (ok) {
         web.sendHeader("X-ESP32MIC-OTA-Reboot", "1");
@@ -816,7 +847,7 @@ static void httpOtaUploadDone() {
         scheduleReboot(false, 700);
     } else {
         endOtaUpdate(false);
-        sendOtaPage(String("Upload failed: ") + otaUploadError, false);
+        sendOtaPage(String("Upload failed: ") + otaUploadError, false, otaUploadBlocked ? 409 : 200);
     }
 }
 
@@ -824,15 +855,24 @@ static void httpOtaUploadChunk() {
     HTTPUpload &upload = web.upload();
     if (upload.status == UPLOAD_FILE_START) {
         otaUploadOk = false;
+        otaUploadBlocked = false;
         otaUploadError = "";
         if (!hasMutationAuth()) {
             otaUploadError = F("forbidden");
             Update.abort();
             return;
         }
+        if (flashlayout::busy()) {
+            otaUploadError = F("Update preparation is in progress. Please wait.");
+            return;
+        }
         if (isLikelyMergedFirmwareName(upload.filename)) {
             otaUploadError = F("This looks like a merged USB firmware image. OTA needs the matching app-only firmware-app-*.bin file.");
             Update.abort();
+            return;
+        }
+        if (!flashlayout::otaAllowed(otaUploadError)) {
+            otaUploadBlocked = true;
             return;
         }
         beginOtaUpdate();
@@ -1878,6 +1918,19 @@ static void httpActionFactoryReset(){
     scheduleReboot(true, 600);
 }
 
+#if FLASH_LAYOUT_TOOL
+static void httpUpdateSpaceStatus() { apiSendJSON(flashlayout::statusJson()); }
+static void httpUpdateSpacePrepare() {
+    if (!requireMutationAuth(true)) return;
+    String error;
+    if (!flashlayout::start(error)) {
+        web.send(409, "application/json", String("{\"ok\":false,\"error\":\"") + jsonEscape(error) + "\"}");
+        return;
+    }
+    apiSendJSON(F("{\"ok\":true}"));
+}
+#endif
+
 void webui_begin() {
     web.on("/", httpIndex);
     web.on("/ota", HTTP_GET, httpOtaPage);
@@ -1886,6 +1939,10 @@ void webui_begin() {
     web.on("/ota/install", HTTP_POST, httpOtaInstall);
     web.on("/ota/upload", HTTP_POST, httpOtaUploadDone, httpOtaUploadChunk);
     web.on("/api/ota_status", HTTP_GET, httpOtaStatus);
+#if FLASH_LAYOUT_TOOL
+    web.on("/api/update_space", HTTP_GET, httpUpdateSpaceStatus);
+    web.on("/api/update_space/prepare", HTTP_POST, httpUpdateSpacePrepare);
+#endif
     web.on("/api/status", httpStatus);
     web.on("/api/audio_status", httpAudioStatus);
     web.on("/api/microphone_profile", HTTP_GET, httpMicProfile);

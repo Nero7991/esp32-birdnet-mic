@@ -42,6 +42,10 @@ case "$fqbn" in
       --build-property compiler.c.extra_flags=-flto
       --build-property compiler.cpp.extra_flags=-flto
       --build-property 'compiler.c.elf.extra_flags=-flto -Werror=lto-type-mismatch'
+      # USB installs start with larger slots. App-only OTA keeps the existing
+      # table until its owner confirms preparation in the Web UI. Keep the
+      # original upload.maximum_size so this bridge build fits both layouts.
+      --build-property "recipe.hooks.prebuild.99.pattern=cp -f \"$ROOT_DIR/tools/partitions/birdnet_4mb.csv\" \"{build.path}/partitions.csv\""
     )
     ;;
 esac

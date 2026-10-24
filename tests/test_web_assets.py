@@ -22,6 +22,7 @@ class WebAssetsTests(unittest.TestCase):
 #include <string>
 using String = std::string;
 #define F(text) text
+#define FLASH_LAYOUT_TOOL 1
 struct { uint32_t size=1310720; uint32_t getFreeSketchSpace(){return size;} } ESP;
 ''' + source[start:end] + r'''
 int main() {
@@ -69,7 +70,9 @@ int main() {
 #include <iostream>
 struct String : std::string { using std::string::string; String(std::string s):std::string(s){} };
 #define F(text) text
-bool checked=true, checking=false, available=false, fresh=true;
+#define FLASH_LAYOUT_TOOL 1
+bool checked=true, checking=false, available=false, fresh=true, prepared=true;
+namespace flashlayout { bool otaAllowed(String& reason){ if(!prepared) reason="Please prepare your device first using the Prepare device button above."; return prepared; } }
 String latest="1.28", error, url="http://firmware.test/firmware-app-c6.bin";
 const char* FW_VERSION_STR="1.27";
 const char* FW_BOARD_NAME_STR="XIAO ESP32-C6";
@@ -83,8 +86,9 @@ bool isNewerFirmwareAvailable(const String&){return available;}
 struct { String body; void sendHeader(const char*,const char*){} void send(int,const char*,const String& html){body=html;} } web;
 ''' + escape + page + r'''
 int main(){
- for(int state=0;state<6;++state){
-  checked=true; checking=state==0; available=state==2; fresh=state!=5;
+ for(int state=0;state<7;++state){
+  prepared=state!=6;
+  checked=true; checking=state==0; available=state==2 || state==6; fresh=state!=5;
   error=state==1?"offline <test>":"";url=state==4?"":"http://firmware.test/firmware-app-c6.bin";
   sendOtaPage("<script>&",false);
   std::cout<<web.body<<'\n';
@@ -100,6 +104,7 @@ int main(){
             self.assertIn("href='/ota.css'", page)
             self.assertIn("src='/ota.js'", page)
             self.assertIn("id='ota-upload-form'", page)
+            self.assertIn("id='update-space-prepare'", page)
             self.assertIn('&lt;script&gt;&amp;', page)
             self.assertNotIn('<style>', page)
             self.assertNotIn('<script>', page)
@@ -109,6 +114,10 @@ int main(){
         self.assertIn('Firmware is up to date.', pages[3])
         self.assertIn('Automatic update is unavailable', pages[4])
         self.assertIn("data-ota-checking='1'", pages[5])
+        self.assertIn("data-ota-allowed='0'", pages[6])
+        self.assertIn("<button type='submit' disabled>Download and install", pages[6])
+        self.assertIn("application/octet-stream' required disabled", pages[6])
+        self.assertIn('Please prepare your device first', pages[6])
         # Browser tests use pages rendered by this actual C++ handler.
         output = ROOT / 'tmp/ota-rendered-pages.json'
         if output.parent.is_dir():

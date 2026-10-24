@@ -8,7 +8,7 @@ Arduino firmware for Seeed Studio XIAO ESP32 and M5Stack AtomS3U, using I2S or P
 **RTSP** for **BirdNET-Go** and **BirdNET-Pi**. It also provides a Web UI, JSON API, MQTT telemetry,
 and Home Assistant MQTT Discovery.
 
-- Latest firmware: **v1.34** (2026-10-22)
+- Latest firmware: **v1.35** (2026-10-24) — [upgrade validation](../release-notes/1.35-validation.md)
 - [Overview, support status and parts](../README.md) · [Release history](CHANGELOG.md)
 - Build targets: Seeed Studio **XIAO ESP32-C3**, **XIAO ESP32-S3**, **XIAO ESP32-C5**, **XIAO ESP32-C6**
 - Maintainer runtime reference: **XIAO ESP32-C6 + ICS-43434**; contributor-tested PDM setups include **M5Stack AtomS3U**, **C5 + IM73D122** and **C3 + Adafruit-compatible PDM**
@@ -383,10 +383,34 @@ You have two choices:
    the matching app-only file from `../manual-ota-firmware/`.
 
 Automatic update uses a board-specific stable plain HTTP URL, for example
-`http://esp32mic.msmeteo.cz/firmware-app-c3.bin`. The build/deploy workflow replaces that alias with
+`http://esp32mic.msmeteo.cz/updates/firmware-app-c3.bin`. The build/deploy workflow replaces that alias with
 the latest published app image on every release. The URL is fixed by the compiled board profile and
 cannot be edited in the OTA page, preventing a C3/S3/C5/C6 device from pulling another board's image.
 Unsupported generic builds must use manual OTA with a matching app-only file.
+
+### One-time C3/C6 preparation (v1.35)
+
+Update from the older firmware to v1.35 normally. You do **not** need a Prepare
+button on the old version: this update installs it.
+
+Then open **Firmware update**, click **Prepare device**, confirm and keep power
+connected. Copying, restarts and reconnection are automatic. Wait for
+**Preparation complete**. Settings are kept; no additional upload is needed.
+
+Until preparation finishes, the new firmware blocks another automatic update or
+manual upload and displays:
+
+> Please prepare your device first using the Prepare device button above.
+
+Your microphone continues working if you postpone it. Once prepared, future
+updates work normally and the step is not repeated. S3/C5 and devices already
+using the larger layout do not need preparation. Valid custom layouts keep
+their existing OTA behavior instead of requiring an unavailable tool.
+
+Keep the device powered during preparation. A power failure during the flash
+rewrite can require USB recovery. Older devices continue to receive v1.35 as a permanent bridge, even after larger
+releases are published. New firmware uses `/updates/ota-version.txt` and
+`/updates/firmware-app-<board>.bin` to reach the latest version.
 
 The server must provide these files over plain HTTP without redirects, with an octet-stream content
 type and a valid content length. HTTPS/TLS does not fit in the tight XIAO ESP32-C3/C6 default app
@@ -627,7 +651,9 @@ and GitHub Actions use the same helper, so no per-release flag changes are neede
 For OTA, open **Firmware update -> Upload compiled file** on the device and select
 `esp32-birdnet-mic/build/c6/esp32-birdnet-mic.ino.bin` from this example.
 Choose the image for the correct board. The `.ino.bin` is app-only; `.merged.bin` is for USB,
-not OTA. The existing OTA partition layout and automatic download URLs are unchanged.
+not OTA. Uploading an app image alone keeps the existing partition layout;
+follow **Prepare device** when prompted on C3/C6 before another OTA. Automatic
+download URLs are unchanged.
 
 For an initial USB installation, use the same output directory explicitly:
 

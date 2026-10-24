@@ -38,6 +38,8 @@ default_url = re.search(r"static String getDefaultOtaUrl\(\)\s*\{(.*?)\n\}", web
 require(default_url, "getDefaultOtaUrl not found")
 require("FW_OTA_ARTIFACT_STR" in default_url.group(1), "Default OTA URL must use board artifact")
 require("FW_VERSION_STR" not in default_url.group(1), "Default OTA URL must not use current firmware version")
+require('"/updates/"' in default_url.group(1), "Tool-bearing firmware must use the current-release OTA channel")
+require('"/updates/ota-version.txt"' in webui, "Current firmware must not poll the permanent legacy feed")
 require("name='url'" not in webui, "Automatic OTA URL must not be editable")
 require("String url = getDefaultOtaUrl();" in webui, "OTA install endpoint must use the compiled board URL")
 require("return expected.length() > 0 && url == expected;" in webui, "OTA URL validation must require an exact board URL")
@@ -58,4 +60,12 @@ for key in ("c3", "s3", "c5", "c6"):
 
 require((WEB / "firmware-app-c6.bin").read_bytes() == (WEB / "firmware-app.bin").read_bytes(),
         "C6 compatibility alias mismatch")
+bridge = json.loads((WEB / 'ota-bridge.json').read_text())
+require(bridge['version'] == '1.35', 'Permanent bridge must remain v1.35')
+require((WEB / 'ota-bridge-version.txt').read_text().strip() == '1.35', 'Bridge feed mismatch')
+import hashlib
+for board in ('c3','s3','c5','c6'):
+    image = (WEB / f'firmware-app-{board}-bridge.bin').read_bytes()
+    require(bridge['boards'][board] == {'size':len(image),'sha256':hashlib.sha256(image).hexdigest()}, 'Bridge digest mismatch: ' + board)
+    require(len(image) <= (1310720 if board in ('c3','c6') else 3342336), 'Bridge exceeds original slot: ' + board)
 print(f"OTA release contract valid for firmware {version}")

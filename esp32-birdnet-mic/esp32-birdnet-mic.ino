@@ -37,6 +37,7 @@
 #include "BrowserAudio.h"
 #include "ThermalRecovery.h"
 #include "ChipTemperature.h"
+#include "FlashLayout.h"
 #include "AudioReserve.h"
 #include <esp_memory_utils.h>
 
@@ -86,7 +87,7 @@ static constexpr uint32_t PDM_SAMPLE_RATE = 48000;
 static constexpr uint32_t PDM_CLOCK_HZ = PDM_SAMPLE_RATE * 64;
 
 // ================== SETTINGS (ESP32 RTSP Mic for BirdNET-Go / BirdNET-Pi) ==================
-#define FW_VERSION "1.34"
+#define FW_VERSION "1.35"
 // Expose FW version as a global C string for WebUI/API
 const char* FW_VERSION_STR = FW_VERSION;
 // Build timestamp for diagnostics (compile time)
@@ -2670,6 +2671,11 @@ void simplePrintln(String message) {
 
 // OTA setup
 void setupOTA() {
+    String preparationError;
+    if (!flashlayout::otaAllowed(preparationError)) {
+        simplePrintln("ArduinoOTA unavailable: " + preparationError);
+        return;
+    }
     // Keep OTA hostname aligned with our mDNS hostname to avoid multiple .local names
     ArduinoOTA.setHostname(mdnsHostname.c_str());
 #ifdef OTA_PASSWORD
@@ -3850,6 +3856,10 @@ void setup() {
     Serial.begin(115200);
     delay(100);
 
+    // Complete an explicitly requested flash migration before audio, Wi-Fi,
+    // temperature recovery or any scheduled actions can run.
+    flashlayout::begin();
+
     // (4) seed for random(): combination of time and unique MAC
     randomSeed((uint32_t)micros() ^ (uint32_t)(ESP.getEfuseMac() & 0xFFFFFFFF));
 
@@ -3934,7 +3944,7 @@ void setup() {
         simplePrintln("FATAL: I2S setup failed!");
         ESP.restart();
     }
-    if (!overheatLatched) {
+    if (!overheatLatched && !otaInProgress) {
         rtspServer.begin();
         rtspServer.setNoDelay(true);
         rtspServerEnabled = true;
@@ -4004,17 +4014,21 @@ void setup() {
 }
 
 void loop() {
-    ArduinoOTA.handle();
-    wifiApRecoveryLoop();
+    flashlayout::loop();
+    if (!flashlayout::busy()) {
+        ArduinoOTA.handle();
+        wifiApRecoveryLoop();
+    }
 
     if (millis() - lastWebuiHandleMs >= WEBUI_HANDLE_INTERVAL_MS) {
         webui_handleClient();
         lastWebuiHandleMs = millis();
     }
 
-    // Keep schedules, health recovery and thermal sampling from restarting
-    // capture between a successful HTTP install and its deferred reboot.
-    if (otaInProgress) {
+    // Pause temperature checks, thermal recovery, schedules/deep sleep, MQTT
+    // and audio health actions throughout preparation and its deferred reboot.
+    // Saved thermal protection and any existing shutdown latch stay untouched.
+    if (otaInProgress || flashlayout::busy()) {
         if (scheduledRebootAt != 0 && millis() >= scheduledRebootAt) ESP.restart();
         delay(1);
         return;

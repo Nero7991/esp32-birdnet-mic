@@ -18,6 +18,7 @@ function gzip(symbol){return Buffer.from([...header.match(new RegExp(symbol+'\\[
   if(url.pathname==='/ota'){response.writeHead(200,{'Content-Type':'text/html'});response.end(pages[action==='checking'?0:2]);return;}
   const body=[];request.on('data',part=>body.push(part));request.on('end',()=>{
    requests.push({path:url.pathname,method:request.method,headers:request.headers,body:Buffer.concat(body)});
+   if(url.pathname==='/api/update_space'){response.writeHead(200,{'Content-Type':'application/json'});response.end('{"state":"ready","capacity":2031616,"ota_allowed":true,"ota_message":"","message":""}');return;}
    if(url.pathname==='/api/ota_status'){response.writeHead(200,{'Content-Type':'application/json'});response.end('{"checking":true}');return;}
    response.writeHead(200,{'X-ESP32MIC-OTA-Reboot':'1'});response.end('installed');
   });

@@ -1,13 +1,13 @@
 # Release validation
 
-Firmware **1.32** includes all four XIAO board images. Maintainer hardware validation
-primarily covers C6 with an I2S microphone; physical PDM validation and long-running
-C5 PDM testing of the integrated image remain pending.
+Firmware **1.35** includes all four XIAO board images. Maintainer hardware validation
+primarily covers C6 with an I2S microphone; the maintainer also reports a successful PDM listening test. Physical C3 migration
+and long-running C5/PDM qualification remain pending.
 
 ## Release notes
 
-See the [current changelog](esp32-birdnet-mic/CHANGELOG.md#132---2026-10-21).
-Previous release records are retained in `release-notes/`.
+See the [current changelog](esp32-birdnet-mic/CHANGELOG.md#135---2026-10-24).
+Previous release records are retained in `release-notes/`. See [v1.35 validation](release-notes/1.35-validation.md).
 
 ## Build and local checks
 
@@ -50,11 +50,11 @@ retrying; uploads and deployments are not rolled back automatically.
 The read-only acceptance check can also be rerun independently:
 
 ```sh
-python3 tools/verify_published_release.py 1.32
+python3 tools/verify_published_release.py 1.35
 ```
 
 The check downloads public artifacts over the actual HTTP OTA route and compares all
-31 assets against GitHub SHA-256 digests (or downloads GitHub assets when the digest
+37 assets against GitHub SHA-256 digests (or downloads GitHub assets when the digest
 is absent). It checks the advertised version, four-board manifest, versioned/stable
 app images and C6 aliases. It never compares against a fresh local rebuild: build
 timestamps can change binaries without changing the firmware version.
@@ -73,3 +73,14 @@ This validates distribution, not successful installation on a physical device.
   client TEARDOWN versus write failures, and totals across concurrent clients.
 - Check actual received audio and concurrent-client responsiveness independently
   of uptime and device-side packet counters.
+
+## Permanent OTA bridge
+
+Old clients must always receive v1.35 from the legacy root OTA URLs. Firmware
+v1.35+ requests `/updates/` for the current release. `tools/package_ota_bridge.py`
+creates the small bridge before the first v1.35 tag and preserves its verified
+files after that tag exists and during later releases. Never remove or replace
+those six bridge assets. The publication verifier checks both channels, and
+`tests/test_ota_channels.py` tests a skipped v1.34 → v1.35 → v1.40 upgrade using
+the actual nginx configuration. Install nginx (or set `NGINX_TEST_BIN`) to run
+that routing test locally; CI installs it.

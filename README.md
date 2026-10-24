@@ -13,8 +13,10 @@ Use a **Seeed Studio XIAO ESP32-C3, S3, C5 or C6** with an I2S or PDM microphone
 or choose the **M5Stack AtomS3U** with its built-in microphone for the easiest setup
 without soldering. **XIAO ESP32-S3 Sense** support is experimental and hardware-untested.
 
-**Latest firmware: v1.34** · [Latest published release](https://github.com/Sukecz/esp32-birdnet-mic/releases/latest)
+**Latest firmware: v1.35** · [Latest published release](https://github.com/Sukecz/esp32-birdnet-mic/releases/latest)
 · [Web flasher](https://esp32mic.msmeteo.cz) · [Changelog](esp32-birdnet-mic/CHANGELOG.md)
+
+See the [v1.35 upgrade validation](release-notes/1.35-validation.md).
 
 ## Contents
 
@@ -47,6 +49,7 @@ without soldering. **XIAO ESP32-S3 Sense** support is experimental and hardware-
   available, with an internal-RAM fallback. Optional 240 MHz CPU setting on S3/C5.
 - **USB browser installation and OTA updates:** board-specific images; normal OTA
   keeps saved settings and the existing partition layout, without USB migration.
+  Older firmware receives a small bridge update before moving to larger releases.
 
 See the [changelog](esp32-birdnet-mic/CHANGELOG.md) for version-by-version changes.
 
@@ -282,6 +285,28 @@ combination. Maintainer runtime testing primarily covers C6 with I2S;
 - **Updates:** open **Firmware update** in the device header. Automatic update uses the published
   image; manual upload needs `firmware-app-<board>.bin`. Never use a merged `firmware-<board>.bin` for OTA.
 
+### C3/C6: prepare for future updates
+
+Starting with **v1.35**, XIAO ESP32-C3/C6 devices with the original flash layout
+need one preparation step to make room for future firmware:
+
+1. Install v1.35 through the usual **Automatic update** button. This first update
+   works without preparation, even when the old firmware has no Prepare button.
+2. On the update page, click **Prepare device** and confirm once. Keep power
+   connected; the device handles restarts and reconnects the page automatically.
+3. Wait for **Preparation complete**. Your settings are kept, and future OTA
+   updates work as usual.
+
+If you postpone preparation, the microphone keeps working. The new firmware
+blocks further updates and asks you to use **Prepare device** first. You do not
+need to choose files or change settings for this step. S3/C5 devices and C3/C6
+devices already using the larger layout do not need it.
+
+A power failure during the brief flash-layout rewrite can require USB recovery.
+Older devices always receive the small v1.35 bridge first, even if they skip
+updates until a later release such as 1.40. After preparation, check for updates
+again to install the latest version.
+
 Keep the device on a trusted LAN: HTTP/RTSP have no built-in user authentication or TLS.
 For setup details, schedules, MQTT and API examples, see the [firmware guide](esp32-birdnet-mic/README.md).
 
@@ -329,7 +354,8 @@ LTO for C3/C6 and PSRAM for C5; S3 keeps normal compilation.
 For OTA, select `esp32-birdnet-mic/build/c6/esp32-birdnet-mic.ino.bin` under
 **Firmware update -> Upload compiled file** in the device Web UI. Use the image built for
 your board; OTA needs the app-only `.ino.bin`, not the `.merged.bin` USB image.
-Existing devices use the same OTA procedure and partition layout.
+An OTA upload alone keeps the existing partition layout. On C3/C6, complete
+[Prepare device](#c3c6-prepare-for-future-updates) when prompted before another OTA.
 
 Ordinary Arduino IDE or direct `arduino-cli compile` builds do not automatically enable LTO.
 See the [full build instructions](esp32-birdnet-mic/README.md#build-and-flash-manually)

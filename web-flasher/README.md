@@ -1,6 +1,8 @@
 # BirdNETMic Web Flasher — ESP32 Microphone USB Installation and OTA Updates
 
-**Firmware: 1.34** (2026-10-22).
+Firmware **v1.35**. See the [upgrade validation](../release-notes/1.35-validation.md).
+
+**Firmware: 1.35** (2026-10-24).
 
 Install using [esp32mic.msmeteo.cz](https://esp32mic.msmeteo.cz) in desktop **Chrome or Edge**
 with a USB **data** connection (AtomS3U plugs directly into USB-A). The flasher detects the ESP chip family and chooses the image for
@@ -27,7 +29,7 @@ Keeping saved values preserves the packet size; **Recommended settings** applies
 | Purpose | File | Notes |
 |---|---|---|
 | Update through the device's OTA page | `firmware-app-<board>.bin` | App-only; choose c3, s3, c5 or c6 |
-| Exact 1.34 OTA image | `firmware-app-<board>-1.34.bin` | Same app, versioned filename |
+| Exact 1.35 OTA image | `firmware-app-<board>-1.35.bin` | Current versioned app-only image |
 | USB web installation | `manifest.json` and its referenced parts | Let the web flasher handle offsets |
 | Manual full USB flash | `firmware-<board>.bin` | Merged image; can overwrite settings; never upload through OTA |
 | Legacy unsuffixed files | `firmware-app.bin`, `firmware.bin` | **C6 only** |
@@ -58,12 +60,35 @@ when updating, choose to keep existing data.
    - **Automatic update**: the device downloads the latest board-specific app-only firmware from the web.
    - **Upload compiled file**: manually select an app-only `.bin` file.
 
+**C3/C6, starting with v1.35:** install the first update normally, then click
+**Prepare device** on the device's update page and confirm. Keep power connected
+and wait for **Preparation complete**; restarts and reconnection are automatic,
+and your settings are kept. The new firmware requires this step before another
+OTA update. The older firmware does not need the button to install v1.35.
+
+S3/C5 and devices already using the larger layout skip this step. New C3/C6 USB
+installations built with the v1.35 helper already use the larger layout. During
+preparation, a power failure can require USB recovery. Older firmware always receives v1.35 first; after preparation, a second normal
+update can install the latest release, even if several versions were skipped.
+
 Automatic download uses a stable plain HTTP URL based on the compiled board profile, for example
-`http://esp32mic.msmeteo.cz/firmware-app-c3.bin`. Deployment replaces each stable board alias with
+`http://esp32mic.msmeteo.cz/updates/firmware-app-c3.bin`. Deployment replaces each stable board alias with
 the latest image and verifies it against the versioned artifact. The server must serve these files
 without redirects, with an octet-stream content type and valid content length. HTTPS/TLS does not
 fit in the tight default XIAO ESP32-C3/C6 partitions. `firmware-app.bin` remains a C6-compatible
 alias for older firmware.
+
+### Updates after skipped releases
+
+The original `/ota-version.txt` and `/firmware-app-<board>.bin` URLs permanently
+serve the small **v1.35 bridge**. A device still on an older version therefore
+installs v1.35 first, rather than attempting a future image that will not fit.
+On C3/C6, complete **Prepare device** and check for updates again.
+
+Firmware v1.35 and later uses `/updates/ota-version.txt` and
+`/updates/firmware-app-<board>.bin` for the latest release. The USB manifest and
+explicit versioned downloads also use the current release. The bridge files and
+their checksums are retained unchanged; later releases must not replace them.
 
 Do not upload `firmware-<board>.bin` or `firmware.bin` on the OTA page. Those are USB merged images.
 For OTA, use `firmware-app-<board>.bin`; `firmware-app.bin` is the compatible C6 alias.

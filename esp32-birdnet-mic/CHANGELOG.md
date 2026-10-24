@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.35 - 2026-10-24
+
+- **More room on C3/C6:** expand both firmware slots from 1.25 MiB to 1.94 MiB with **Prepare device**, directly on the OTA page. Confirm once; copying, restarts, reconnection and verification are automatic. Saved settings are kept.
+- **Safe upgrade sequence:** older firmware first receives the small, permanent v1.35 bridge, even when later releases are larger. After that update, C3/C6 owners complete **Prepare device** before another OTA. Prepared devices use the current-release update channel. S3/C5 do not need preparation.
+- **Clear update controls:** explain preparation before further automatic or manual updates and enforce the check before flash writes. Read/checksum errors and a stale partition map cannot enable an update. Preserve ordinary OTA for valid custom layouts and configurations without this tool.
+- **Migration safeguards:** verify the table and boot selection, pause capture/RTSP, temperature evaluation and scheduled actions, retry failed writes and attempt to restore the original table. A power failure during the table rewrite can still require USB recovery; keep power connected.
+- **USB installs:** new C3/C6 installations start with larger slots. Keep the permanent bridge within the old slot limit and freeze its files for future skipped-release upgrades.
+- **Documentation:** simple first-update and one-time preparation instructions in all user guides. Maintainer PDM listening tests report excellent sound with no audible noise; this is not a measured SNR or long-run qualification.
+- See the [validation record](../release-notes/1.35-validation.md) for four-board builds, host/browser checks, skipped-release routing and physical C6 OTA evidence and limits.
+
 ## 1.34 - 2026-10-22
 
 - **C5 PSRAM:** enable PSRAM automatically in the build helper; allocate the 64 KiB RTSP ring and 32 KiB browser-listening queue in PSRAM. Keep DMA, PDM and capture/RTP working buffers internal. Preserve the adaptive internal-RAM fallback and check internal Wi-Fi/producer headroom before starting capture.
