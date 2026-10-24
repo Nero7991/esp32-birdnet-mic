@@ -236,6 +236,11 @@ for advanced setups. Use **3.3 V**, not 5 V, for the microphone.
 
 ### PDM microphones
 
+![XIAO ESP32-C6 wiring diagram with an IM73D122 PDM microphone](assets/connection-IM73D122.png)
+
+*IM73D122 breakout shown: CLK → D3, DATA → D2, L/R → GND; leave NC disconnected.
+Power the microphone from 3V3 and the XIAO from USB-C or a regulated 5 V supply.*
+
 IM73D122, Adafruit PDM (#3492 / MP34DT01-M) and compatible MP34DT01 breakouts use
 **different wiring from I2S**. Use the PDM selection for all of them; the Web UI label
 currently names IM73D122. Check each breakout's pin labels:

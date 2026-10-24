@@ -176,6 +176,11 @@ I2S Shift, analog gain and noise performance need further investigation on the c
 
 ### PDM microphones
 
+![XIAO ESP32-C6 wiring diagram with an IM73D122 PDM microphone](../assets/connection-IM73D122.png)
+
+*IM73D122 breakout shown: CLK → D3, DATA → D2, L/R → GND; leave NC disconnected.
+Power the microphone from 3V3 and the XIAO from USB-C or a regulated 5 V supply.*
+
 **Supported, with contributor hardware tests.** See the [microphone comparison](../README.md#microphones)
 for the recommended I2S option and the **Best quality** IM73D122 PDM option.
 
