@@ -375,6 +375,7 @@ settings used for the packaged firmware.
 
 ## More documentation
 
+- [SD recording mode plan (Czech; proposed, not implemented)](docs/recording-mode-plan.cs.md)
 - [Firmware guide and API](esp32-birdnet-mic/README.md)
 - [Manual OTA files](manual-ota-firmware/README.md)
 - [Web flasher and firmware file guide](web-flasher/README.md)
