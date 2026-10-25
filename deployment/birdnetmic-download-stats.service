@@ -1,0 +1,15 @@
+[Unit]
+Description=BirdNETMic anonymous download totals for the web flasher
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+User=msrpi
+ExecStart=/usr/bin/python3 /home/msrpi/scripts/birdnetmic-download-stats.py --state-dir /home/msrpi/.local/share/birdnetmic-stats --output /home/msrpi/web-projects/web-flasher/download-stats.json
+TimeoutStartSec=180
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/msrpi/.local/share/birdnetmic-stats /home/msrpi/web-projects/web-flasher
+PrivateTmp=true
+UMask=0022

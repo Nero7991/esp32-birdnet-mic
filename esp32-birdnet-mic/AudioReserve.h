@@ -12,8 +12,8 @@ static constexpr size_t kAllocationOverhead = 1024;
 static constexpr size_t kC5MinimumHeapMargin = 64 * 1024;
 
 // An external audio ring still needs internal Wi-Fi memory and a producer stack.
-inline bool externalHeadroom(size_t freeHeap, size_t largestBlock) {
-    return freeHeap >= kHeapMargin + kProducerStackBytes + kAllocationOverhead &&
+inline bool externalHeadroom(size_t freeHeap, size_t largestBlock, size_t heapMargin = kHeapMargin) {
+    return freeHeap >= heapMargin + kProducerStackBytes + kAllocationOverhead &&
            largestBlock >= kProducerStackBytes + kAllocationOverhead;
 }
 

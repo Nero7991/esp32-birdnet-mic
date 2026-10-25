@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.36 - 2026-10-25
+
+- **C5 audio restart:** keep using the PSRAM audio ring when a disconnected streaming client still holds internal TCP buffers. Apply the existing 64 KiB C5 Wi-Fi allowance to the PSRAM path, retaining producer-stack and contiguous-memory checks. Fix rejected gain/settings changes and failed rollback until automatic recovery. Other boards and C5 builds without PSRAM keep their existing allocation rules.
+- Add a regression case for restarting capture with 84 KiB internal RAM and a 25 KiB largest block. The permanent v1.35 OTA bridge and partition layouts are unchanged.
+- **Web flasher:** add download totals and per-release/board/source breakdowns, persistent light/dark themes and responsive presentation. Keep anonymous aggregate download counts separate from page-visit analytics; preserve historical collector state across releases.
+- See the [validation record](../release-notes/1.36-validation.md) for builds, regression tests, C6 OTA and hardware-validation limits.
+
 ## 1.35 - 2026-10-24
 
 - **More room on C3/C6:** expand both firmware slots from 1.25 MiB to 1.94 MiB with **Prepare device**, directly on the OTA page. Confirm once; copying, restarts, reconnection and verification are automatic. Saved settings are kept.

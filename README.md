@@ -13,10 +13,11 @@ Use a **Seeed Studio XIAO ESP32-C3, S3, C5 or C6** with an I2S or PDM microphone
 or choose the **M5Stack AtomS3U** with its built-in microphone for the easiest setup
 without soldering. **XIAO ESP32-S3 Sense** support is experimental and hardware-untested.
 
-**Latest firmware: v1.35** · [Latest published release](https://github.com/Sukecz/esp32-birdnet-mic/releases/latest)
+**Latest firmware: v1.36** · [Latest published release](https://github.com/Sukecz/esp32-birdnet-mic/releases/latest)
 · [Web flasher](https://esp32mic.msmeteo.cz) · [Changelog](esp32-birdnet-mic/CHANGELOG.md)
 
-See the [v1.35 upgrade validation](release-notes/1.35-validation.md).
+v1.36 fixes audio restarts on C5 with PSRAM while a streaming client is connected.
+See the [release validation](release-notes/1.36-validation.md) and [v1.35 upgrade validation](release-notes/1.35-validation.md).
 
 ## Contents
 

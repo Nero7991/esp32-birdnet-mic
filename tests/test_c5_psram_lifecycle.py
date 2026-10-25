@@ -66,6 +66,11 @@ int main(){
  assert(!externalHeadroom(minimum-1,100*1024));
  assert(!externalHeadroom(128*1024,kProducerStackBytes+kAllocationOverhead-1));
  for(int n=0;n<50;++n){assert(startAudioProducer());assert(audioRingInPsram&&audioRingBufferCapacityBytes==65536);}
+ // Restart with a client's TCP buffers still held (Dan's C5 log: 84-86 KB free,
+ // largest block 25 KB): the PSRAM ring must still be used under the 64 KB allowance.
+ stopAudioProducer();internalFree=84*1024;internalLargest=25*1024;
+ assert(startAudioProducer());assert(audioRingInPsram&&audioRingBufferCapacityBytes==65536);
+ stopAudioProducer();internalFree=128*1024;internalLargest=100*1024;
  stopAudioProducer();assert(created==deleted&&!audioRingInPsram);
  externalLargest=0;assert(startAudioProducer());assert(!audioRingInPsram&&audioRingBufferCapacityBytes>=16384);
  stopAudioProducer();externalLargest=8*1024*1024;

@@ -60,6 +60,8 @@ class RealNginxBridgeTests(unittest.TestCase):
             server=(ROOT/'deployment/esp32mic-web-default.conf').read_text()
             server=server.replace('listen 80;',f'listen 127.0.0.1:{port};').replace('/usr/share/nginx/html',str(web))
             server=server.replace('include /etc/nginx/mime.types;','types { application/octet-stream bin; application/json json; text/plain txt; }')
+            server=server.replace('/var/log/nginx/access.log',str(base/'logs/access.log'))
+            server=server.replace('__FIRMWARE_VERSION__','1.40')
             config=base/'nginx.conf'
             config.write_text(f'daemon off; master_process off; pid {base}/nginx.pid; error_log stderr; events {{}} http {{ access_log off; client_body_temp_path {base}/body; proxy_temp_path {base}/proxy; fastcgi_temp_path {base}/fastcgi; uwsgi_temp_path {base}/uwsgi; scgi_temp_path {base}/scgi;\n'+server+'\n}')
             command=[str(binary),'-p',str(base),'-c',str(config)]
@@ -90,6 +92,10 @@ class RealNginxBridgeTests(unittest.TestCase):
                         self.assertEqual(r.read(),(web/f'firmware-app-{board}.bin').read_bytes())
                 with urllib.request.urlopen(url+'/firmware-app.bin',timeout=2) as r:
                     self.assertEqual(r.read(),b'bridge-c6')
+                records=[json.loads(line) for line in (base/'logs/access.log').read_text().splitlines()]
+                self.assertTrue(all(record['release']=='1.40' for record in records))
+                self.assertTrue(any(record['file'].endswith('firmware-app-c6-bridge.bin') for record in records))
+                self.assertTrue(any(record['file'].endswith('firmware-app-c6.bin') for record in records))
             finally:
                 process.terminate()
                 try: process.wait(timeout=3)

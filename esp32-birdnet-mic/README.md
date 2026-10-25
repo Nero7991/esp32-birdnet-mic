@@ -8,7 +8,8 @@ Arduino firmware for Seeed Studio XIAO ESP32 and M5Stack AtomS3U, using I2S or P
 **RTSP** for **BirdNET-Go** and **BirdNET-Pi**. It also provides a Web UI, JSON API, MQTT telemetry,
 and Home Assistant MQTT Discovery.
 
-- Latest firmware: **v1.35** (2026-10-24) — [upgrade validation](../release-notes/1.35-validation.md)
+- Latest firmware: **v1.36** (2026-10-25) — [release validation](../release-notes/1.36-validation.md)
+- C5 PSRAM: retain audio capture when changing settings with a streaming client connected.
 - [Overview, support status and parts](../README.md) · [Release history](CHANGELOG.md)
 - Build targets: Seeed Studio **XIAO ESP32-C3**, **XIAO ESP32-S3**, **XIAO ESP32-C5**, **XIAO ESP32-C6**
 - Maintainer runtime reference: **XIAO ESP32-C6 + ICS-43434**; contributor-tested PDM setups include **M5Stack AtomS3U**, **C5 + IM73D122** and **C3 + Adafruit-compatible PDM**

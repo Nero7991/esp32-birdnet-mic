@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh BirdNETMic website download statistics every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:15
+Persistent=true
+Unit=birdnetmic-download-stats.service
+
+[Install]
+WantedBy=timers.target

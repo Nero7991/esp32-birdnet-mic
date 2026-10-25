@@ -3,265 +3,76 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>birdnet-esp32-rtsp-mic | Web Flasher</title>
+  <meta name="description" content="Install BirdNETMic on your Seeed XIAO ESP32. One-click USB flashing, wireless updates, and firmware download statistics by release and board.">
+  <meta name="color-scheme" content="light dark">
+  <title>BirdNETMic · Install & download statistics</title>
   <link rel="icon" type="image/png" sizes="96x96" href="assets/favicon-96x96.png?v=20260722">
-  <style>
-    :root {
-      --bg: #f8fafc;
-      --panel: #ffffff;
-      --border: #e2e8f0;
-      --text: #0f172a;
-      --muted: #64748b;
-      --accent: #0ea5e9;
-      --accent-2: #f59e0b;
-      --shadow: 0 24px 70px rgba(15, 23, 42, 0.12);
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-      color: var(--text);
-      background: radial-gradient(160% 140% at 30% -10%, rgba(14,165,233,0.08), transparent 60%),
-                  radial-gradient(120% 120% at 80% 0%, rgba(245,158,11,0.08), transparent 55%),
-                  var(--bg);
-      padding: 40px 16px 60px;
-    }
-    .shell {
-      max-width: 960px;
-      margin: 0 auto;
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 34px;
-      box-shadow: var(--shadow);
-    }
-    .logo {
-      width: 150px;
-      height: auto;
-      display: block;
-      margin: 0 auto 18px;
-      filter: drop-shadow(0 8px 18px rgba(14,165,233,0.18));
-    }
-    .eyebrow {
-      color: var(--accent-2);
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-      font-weight: 700;
-      font-size: 12px;
-      margin: 0 0 10px;
-      text-align: center;
-    }
-    h1 {
-      margin: 0;
-      text-align: center;
-      font-size: clamp(30px, 4vw, 42px);
-      letter-spacing: -0.02em;
-      line-height: 1.1;
-      font-variant-numeric: lining-nums;
-    }
-    .lede {
-      margin: 12px auto 26px;
-      color: var(--muted);
-      font-size: 16px;
-      line-height: 1.6;
-      max-width: 700px;
-      text-align: center;
-    }
-    .cta {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      align-items: center;
-      margin-bottom: 22px;
-    }
-    esp-web-install-button::part(button) {
-      background: linear-gradient(120deg, var(--accent), var(--accent-2));
-      color: #082f49;
-      border: none;
-      border-radius: 12px;
-      padding: 14px 22px;
-      font-weight: 700;
-      font-size: 15px;
-      letter-spacing: 0.01em;
-      cursor: pointer;
-      box-shadow: 0 18px 40px rgba(14,165,233,0.25);
-    }
-    esp-web-install-button::part(button):hover { filter: brightness(1.05); }
-    .mini {
-      color: var(--muted);
-      font-size: 13px;
-      text-align: center;
-    }
-    .chips {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      justify-content: center;
-      margin: 10px 0 18px;
-    }
-    .chip {
-      padding: 7px 12px;
-      border-radius: 12px;
-      background: #f1f5f9;
-      border: 1px solid var(--border);
-      color: #334155;
-      font-size: 12px;
-      font-weight: 600;
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-      gap: 14px;
-      margin: 12px 0 8px;
-    }
-    .card {
-      background: #fbfdff;
-      border: 1px dashed #d3dce7;
-      border-radius: 14px;
-      padding: 14px 16px;
-      color: #0f172a;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
-      font-size: 14px;
-      line-height: 1.6;
-      font-variant-numeric: lining-nums;
-    }
-    .card strong { color: #0b1433; font-size: 14.5px; }
-    .ota-box {
-      margin-top: 18px;
-      background: linear-gradient(135deg, rgba(14,165,233,0.10), rgba(245,158,11,0.10));
-      border-style: solid;
-    }
-    .ota-form {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-top: 12px;
-    }
-    .ota-form input {
-      flex: 1 1 220px;
-      min-width: 0;
-      padding: 12px 13px;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      font: inherit;
-    }
-    .ota-form button {
-      border: none;
-      border-radius: 12px;
-      padding: 12px 16px;
-      font-weight: 800;
-      cursor: pointer;
-      color: #082f49;
-      background: linear-gradient(120deg, var(--accent), var(--accent-2));
-    }
-    .status-line {
-      margin-top: 8px;
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.4;
-    }
-    .footer-card {
-      margin-top: 16px;
-      background: #f8fafc;
-      border: 1px solid var(--border);
-    }
-    a {
-      color: var(--accent);
-      text-decoration: none;
-      font-weight: 700;
-    }
-    a:hover { text-decoration: underline; }
-    @media (max-width: 640px) {
-      .shell { padding: 26px; }
-      .logo { width: 112px; }
-    }
-  </style>
+  <script>
+    try {
+      const saved = localStorage.getItem('birdnetmic-theme');
+      document.documentElement.dataset.theme = saved === 'light' || saved === 'dark' ? saved : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    } catch (_) { document.documentElement.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  </script>
+  <link rel="stylesheet" href="site.css?v=20261025b">
+  <script defer src="https://stats.msmeteo.cz/script.js" data-website-id="be5609b6-a535-4090-90bd-8d2e6d9396a4"></script>
+  <script defer src="site.js?v=20261025b"></script>
+  <script type="module" src="vendor/esp-web-tools/10.4.0/install-button.js"></script>
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to content</a>
   <div class="shell">
-    <img src="assets/bird.png?v=20260722" alt="BirdNET Mic logo" class="logo">
-    <p class="eyebrow">birdnet-esp32-rtsp-mic</p>
-    <h1>Flash your Seeed XIAO ESP32 board in one click</h1>
-    <p class="lede">Plug in a supported XIAO C3, S3, C5, or C6 via USB‑C, hit Flash, and let the browser pick the matching firmware automatically.</p>
-
-    <div class="cta">
-      <esp-web-install-button manifest="manifest.json"></esp-web-install-button>
-      <div class="mini">Chrome or Edge (desktop) · USB‑C data cable · For firmware updates, choose the option that keeps existing data.</div>
-    </div>
-
-    <div class="chips">
-      <span class="chip">ESP32‑C3</span>
-      <span class="chip">ESP32‑S3</span>
-      <span class="chip">ESP32‑C5</span>
-      <span class="chip">ESP32‑C6</span>
-      <span class="chip">WebSerial</span>
-      <span class="chip">One-click flash</span>
-      <span class="chip" id="fw-version-chip">Firmware: loading...</span>
-    </div>
-
-    <div class="grid">
-      <div class="card"><strong>1) Connect</strong><br>USB‑C to your PC. If flashing fails, hold BOOT while plugging in.</div>
-      <div class="card"><strong>2) Flash</strong><br>Click Flash → pick the USB JTAG/serial device → ESP Web Tools detects the chip family and uses the matching firmware.</div>
-      <div class="card"><strong>3) Done</strong><br>Board reboots with birdnet-esp32-rtsp-mic firmware.</div>
-    </div>
-
-    <div class="grid">
-      <div class="card"><strong>After flash: Wi‑Fi setup</strong><br>The device starts an access point named <em>ESP32-RTSP-Mic-AP</em> (open network). Connect to it, you will be redirected to the captive portal (or open <code>192.168.4.1</code>). Enter your Wi‑Fi SSID/password, save, and the board will reboot and join your Wi‑Fi.</div>
-      <div class="card"><strong>If portal doesn’t pop up</strong><br>Open a browser on the same device and go to <code>http://192.168.4.1</code>. Once Wi‑Fi is saved, reconnect to your normal network. Each device keeps its own unique mDNS name such as <code>esp32mic-a1b2c3.local</code>; see the exact name in its Web UI or your router.</div>
-      <div class="card"><strong>RTSP streams</strong><br>After Wi‑Fi is set, use <code>rtsp://&lt;device-ip&gt;:8554/audio1</code> (stream 1) and <code>rtsp://&lt;device-ip&gt;:8554/audio2</code> (stream 2). The same paths work with the device’s existing unique mDNS hostname when mDNS is available.</div>
-    </div>
-
-    <div class="card ota-box">
-      <strong>OTA update without USB</strong><br>
-      If the device is already on Wi‑Fi, enter its IP address and open the OTA update page.
-      The device can either download the matching latest firmware from this web flasher automatically, or you can upload the board-specific app-only file manually.
-      <div class="ota-form">
-        <input id="ota-ip" inputmode="numeric" autocomplete="off" placeholder="Device IP, e.g. 192.168.1.80">
-        <button type="button" id="ota-open">Open OTA update</button>
-      </div>
-      <div class="status-line" id="ota-status">C6 build enables its external antenna RF switch; C3/S3/C5 use their U.FL antenna path without firmware GPIO switching. Default public builds have no OTA password.</div>
-    </div>
-
-    <div class="card footer-card">
-      <strong>Project</strong><br>
-      ESP32 RTSP microphone for BirdNET-Go / BirdNET-Pi. Source & docs on
-      <a href="https://github.com/Sukecz/esp32-birdnet-mic" target="_blank" rel="noreferrer">GitHub</a>.
-    </div>
-    <p class="mini" style="margin-top:12px;text-align:center;">© <a href="https://github.com/Sukecz" target="_blank" rel="noreferrer">Sukecz</a></p>
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="BirdNETMic home"><img src="assets/favicon-96x96.png" alt="" width="36" height="36">BirdNET<span>Mic</span></a>
+      <nav aria-label="Main navigation">
+        <a href="#install">Install</a><a href="#downloads">Statistics</a><a href="https://github.com/Sukecz/esp32-birdnet-mic" target="_blank" rel="noreferrer">GitHub ↗</a>
+      </nav>
+      <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch color theme" title="Switch color theme"><span aria-hidden="true" id="theme-icon">◐</span><span id="theme-label">Theme</span></button>
+    </header>
+    <main id="main">
+      <section class="hero" id="install" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="live-dot"></span> ESP32 MICROPHONE FIRMWARE</p>
+          <h1 id="hero-title">Install <span>BirdNETMic</span></h1>
+          <p class="lede">ESP32 microphone firmware for BirdNET-Go and BirdNET-Pi. Install it from your browser or update an existing device over Wi-Fi.</p>
+          <div class="install-action"><esp-web-install-button manifest="manifest.json"><button type="button" slot="activate" class="flash-button">Connect &amp; flash <span aria-hidden="true">↗</span></button><span slot="unsupported" class="install-note">USB installation needs Chrome or Edge on desktop. <a href="https://github.com/Sukecz/esp32-birdnet-mic/releases">Download firmware ↗</a></span></esp-web-install-button><a class="guide-button" href="https://github.com/Sukecz/esp32-birdnet-mic#quick-start" target="_blank" rel="noreferrer">Setup guide <span aria-hidden="true">↗</span></a><span class="release-badge" id="fw-version-chip">Loading release…</span></div>
+          <p class="install-note">Chrome or Edge on desktop · USB data connection<br>Updating? Choose the option that keeps existing data.</p>
+          <div class="chips" aria-label="Supported boards"><span>XIAO ESP32-C3</span><span>XIAO ESP32-S3 / Plus</span><span>XIAO ESP32-C5</span><span>XIAO ESP32-C6</span><span>M5Stack AtomS3U</span><span>XIAO ESP32-S3 Sense (experimental)</span></div>
+          <p class="board-note">AtomS3U and Sense use the S3 firmware. After Wi-Fi setup, open <strong>Audio → S3 board</strong>, select your board and click <strong>Apply board</strong>. AtomS3U has a built-in microphone; Sense support has not been tested on physical hardware.</p>
+        </div>
+        <div class="hero-art"><div class="art-orbit"></div><img src="assets/bird.png?v=20260722" alt="A green bird singing into a microphone" width="320" height="320"></div>
+      </section>
+      <section class="steps" aria-label="Installation steps">
+        <div><span class="step-number">01</span><div><h2>Connect</h2><p>Connect via USB. AtomS3U plugs directly into USB-A. For XIAO, use a USB-C data cable.</p></div></div>
+        <div><span class="step-number">02</span><div><h2>Flash</h2><p>Select the USB serial device. The browser picks the firmware for your ESP32 chip.</p></div></div>
+        <div><span class="step-number">03</span><div><h2>Go wireless</h2><p>Connect to ESP32-RTSP-Mic-AP and enter your Wi-Fi details.</p></div></div>
+      </section>
+      <section class="setup-grid" aria-label="Device setup">
+        <section class="panel setup-card" aria-labelledby="wifi-setup-title"><h2 id="wifi-setup-title">First boot &amp; Wi-Fi setup</h2><div class="details-body"><p>The device starts an open access point named <strong>ESP32-RTSP-Mic-AP</strong>. Connect to it and enter your Wi-Fi SSID and password in the captive portal. The board saves your settings and rejoins your network.</p><p>If the portal does not open, visit <code>http://192.168.4.1</code>. Then reconnect to your normal network. Find the board’s IP in your router, or use its unique mDNS name, such as <code>esp32mic-a1b2c3.local</code>, shown in its Web UI.</p></div></section>
+        <section class="panel setup-card" aria-labelledby="birdnet-setup-title"><h2 id="birdnet-setup-title">Connect to BirdNET</h2><div class="details-body"><p>After Wi-Fi setup, add the device’s RTSP stream to BirdNET-Go or BirdNET-Pi.</p><p><code>rtsp://&lt;device-ip&gt;:8554/audio1</code><br><code>rtsp://&lt;device-ip&gt;:8554/audio2</code></p><p>These paths also work with the device’s unique mDNS hostname when mDNS is available.</p></div></section>
+      </section>
+      <section class="ota-panel panel" aria-labelledby="ota-title">
+        <div><p class="eyebrow">ALREADY CONNECTED?</p><h2 id="ota-title">Update over Wi-Fi</h2><p>Open your device’s update page for an automatic update or a manual firmware upload.</p></div>
+        <form class="ota-form" id="ota-form"><label for="ota-ip">Device IP or hostname</label><div class="input-action"><input id="ota-ip" type="text" autocomplete="off" placeholder="e.g. 192.168.1.80" required><button type="submit">Open OTA <span aria-hidden="true">↗</span></button></div><p class="status-line" id="ota-status" role="status">Use the app-only image matching your board.</p></form>
+      </section>
+      <section class="downloads" id="downloads" aria-labelledby="downloads-title">
+        <div class="section-heading"><div><h2 id="downloads-title">Download statistics</h2><p>Firmware downloads across this website, device OTA updates, and GitHub.</p></div><span class="update-label" id="stats-updated">Loading statistics…</span></div>
+        <div class="metrics" id="stats-metrics" aria-label="Download summary">
+          <div class="metric"><span>Downloads</span><strong id="metric-total">—</strong><small>all selected releases</small></div>
+          <div class="metric"><span>Latest release</span><strong id="metric-latest">—</strong><small id="metric-latest-label">downloads</small></div>
+          <div class="metric"><span>Device OTA</span><strong id="metric-ota">—</strong><small>automatic firmware downloads</small></div>
+          <div class="metric"><span>GitHub</span><strong id="metric-github">—</strong><small>firmware assets downloaded</small></div>
+        </div>
+        <div class="panel release-panel">
+          <div class="filters"><div class="filter-label"><span class="live-dot"></span> Releases <span id="release-count"></span></div><div class="filter-controls"><label for="board-filter">Board <select id="board-filter"><option value="all">All boards</option><option value="c3">ESP32-C3</option><option value="s3">ESP32-S3</option><option value="c5">ESP32-C5</option><option value="c6">ESP32-C6</option></select></label><label for="source-filter">Source <select id="source-filter"><option value="all">All downloads</option><option value="website">Website + OTA</option><option value="web_flash">USB web flasher</option><option value="ota">Device OTA</option><option value="manual">Direct downloads</option><option value="github">GitHub</option></select></label></div></div>
+          <p id="stats-status" class="stats-status" role="status">Fetching download totals…</p>
+          <div class="release-list" id="release-list"></div>
+          <div class="list-footer"><span>Open a release for board & download type details.</span><button type="button" class="text-button" id="show-older" hidden>Show older releases ↓</button><button type="button" class="text-button" id="stats-retry" hidden>Try again ↻</button></div>
+        </div>
+        <details class="counting-notes"><summary>How are downloads counted?</summary><div class="details-body"><p>One complete firmware file transfer counts as one download. USB flashing counts only the app image; bootloaders and partition files are excluded. Device OTA and direct downloads are counted separately. Retries and repeat downloads can count again; these numbers do not measure unique devices or successful installations.</p><p id="stats-coverage">Website history is limited to retained server logs. GitHub totals cover published firmware assets.</p><p>Website checks by our release scripts, HEAD requests, failed and incomplete transfers are excluded. GitHub provides raw asset download counts, including historical tests and automation that cannot be separated. A release’s total adds its four boards and all download types. Historical transfers whose version cannot be verified are listed as “Unassigned”.</p></div></details>
+        <noscript><p>Enable JavaScript to view download statistics. Firmware and source code are also available on <a href="https://github.com/Sukecz/esp32-birdnet-mic/releases">GitHub Releases</a>.</p></noscript>
+      </section>
+    </main>
+    <footer><a class="brand" href="#">BirdNET<span>Mic</span></a><p>ESP32 RTSP microphone firmware</p><a href="https://github.com/Sukecz" target="_blank" rel="noreferrer">Built by Sukecz ↗</a></footer>
   </div>
-
-  <script type="module" src="vendor/esp-web-tools/10.4.0/install-button.js"></script>
-  <script>
-    (async function loadFirmwareVersion() {
-      const chip = document.getElementById("fw-version-chip");
-      if (!chip) return;
-      try {
-        const response = await fetch("manifest.json", { cache: "no-store" });
-        if (!response.ok) throw new Error("manifest fetch failed");
-        const manifest = await response.json();
-        const version = manifest && manifest.version ? String(manifest.version).trim() : "";
-        chip.textContent = version ? ("Firmware: v" + version) : "Firmware: unknown";
-      } catch (_) {
-        chip.textContent = "Firmware: unknown";
-      }
-    })();
-
-    (function bindOtaOpen() {
-      const input = document.getElementById("ota-ip");
-      const button = document.getElementById("ota-open");
-      const status = document.getElementById("ota-status");
-      if (!input || !button || !status) return;
-      button.addEventListener("click", () => {
-        let ip = String(input.value || "").trim();
-        ip = ip.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
-        if (!/^[a-zA-Z0-9.-]+(?::\d+)?$/.test(ip)) {
-          status.textContent = "Enter the device IP address first, for example 192.168.1.80.";
-          return;
-        }
-        window.location.href = "http://" + ip + "/ota";
-      });
-    })();
-  </script>
 </body>
 </html>

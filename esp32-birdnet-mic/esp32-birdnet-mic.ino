@@ -87,7 +87,7 @@ static constexpr uint32_t PDM_SAMPLE_RATE = 48000;
 static constexpr uint32_t PDM_CLOCK_HZ = PDM_SAMPLE_RATE * 64;
 
 // ================== SETTINGS (ESP32 RTSP Mic for BirdNET-Go / BirdNET-Pi) ==================
-#define FW_VERSION "1.35"
+#define FW_VERSION "1.36"
 // Expose FW version as a global C string for WebUI/API
 const char* FW_VERSION_STR = FW_VERSION;
 // Build timestamp for diagnostics (compile time)
@@ -2944,8 +2944,12 @@ static void deleteAudioRingBuffer() {
 // Leave 64 KB of PSRAM for other large allocations; otherwise use internal RAM.
 static bool createPsramAudioRing(size_t requested) {
     const uint32_t internal = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    // The ring itself goes to PSRAM, so only Wi-Fi headroom and the producer
+    // stack are needed internally. Use the C5 restart allowance (64 KB) here
+    // too: a client disconnected for the restart may still hold TCP buffers.
     if (!audioreserve::externalHeadroom(heap_caps_get_free_size(internal),
-                                       heap_caps_get_largest_free_block(internal))) return false;
+                                       heap_caps_get_largest_free_block(internal),
+                                       audioreserve::kC5MinimumHeapMargin)) return false;
     if (heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) < requested + 64 * 1024) return false;
     audioRingBuffer = xRingbufferCreateWithCaps(requested, RINGBUF_TYPE_BYTEBUF, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!audioRingBuffer) return false;

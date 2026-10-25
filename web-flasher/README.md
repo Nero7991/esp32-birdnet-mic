@@ -1,8 +1,8 @@
 # BirdNETMic Web Flasher — ESP32 Microphone USB Installation and OTA Updates
 
-Firmware **v1.35**. See the [upgrade validation](../release-notes/1.35-validation.md).
+Firmware **v1.36**. See the [release validation](../release-notes/1.36-validation.md).
 
-**Firmware: 1.35** (2026-10-24).
+**Firmware: 1.36** (2026-10-25).
 
 Install using [esp32mic.msmeteo.cz](https://esp32mic.msmeteo.cz) in desktop **Chrome or Edge**
 with a USB **data** connection (AtomS3U plugs directly into USB-A). The flasher detects the ESP chip family and chooses the image for
@@ -29,7 +29,7 @@ Keeping saved values preserves the packet size; **Recommended settings** applies
 | Purpose | File | Notes |
 |---|---|---|
 | Update through the device's OTA page | `firmware-app-<board>.bin` | App-only; choose c3, s3, c5 or c6 |
-| Exact 1.35 OTA image | `firmware-app-<board>-1.35.bin` | Current versioned app-only image |
+| Exact 1.36 OTA image | `firmware-app-<board>-1.36.bin` | Current versioned app-only image |
 | USB web installation | `manifest.json` and its referenced parts | Let the web flasher handle offsets |
 | Manual full USB flash | `firmware-<board>.bin` | Merged image; can overwrite settings; never upload through OTA |
 | Legacy unsuffixed files | `firmware-app.bin`, `firmware.bin` | **C6 only** |
