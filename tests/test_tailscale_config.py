@@ -107,5 +107,41 @@ std::cout << tailscaleStatusJson(s);
         self.assertIn('"tsnet"', link)
 
 
+class TailscaleLinkTests(unittest.TestCase):
+    def setUp(self):
+        self.link = (SKETCH_DIR / 'TailscaleLink.cpp').read_text()
+
+    def test_begin_guards(self):
+        begin = function(self.link, 'void tailscaleBegin()')
+        psram = begin.index('ESP.getPsramSize() == 0')
+        nokey = begin.index('!tailscaleHasKey()')
+        init = begin.index('microlink_init(')
+        self.assertLess(psram, init)
+        self.assertLess(nokey, init)
+        self.assertIn('TS_STATE_NO_PSRAM', begin[psram:nokey])
+        self.assertIn('TS_STATE_NO_KEY', begin[nokey:init])
+        self.assertIn('.auth_key = tsAuthKey', begin)
+
+    def test_no_restart_on_failure(self):
+        self.assertNotIn('ESP.restart', self.link)
+        self.assertNotIn('esp_restart', self.link)
+
+    def test_setup_and_loop_call_sites(self):
+        sketch = (SKETCH_DIR / 'esp32-birdnet-mic.ino').read_text()
+        self.assertRegex(sketch, r'applyMdnsSetting\(\);\s*\n#ifdef BIRDNET_TS_FORK\s*\n\s*tailscaleLoad\(\);\s*\n\s*tailscaleBegin\(\);\s*\n#endif')
+        loop = function(sketch, 'void loop()')
+        self.assertRegex(loop, r'#ifdef BIRDNET_TS_FORK\s*\n\s*tailscaleLoop\(\);\s*\n\s*#endif')
+
+    def test_microlink_component_pinned(self):
+        root_cmake = (ROOT / 'idf' / 'CMakeLists.txt').read_text()
+        self.assertIn('libs/microlink/components', root_cmake)
+        rev = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=ROOT / 'idf' / 'libs' / 'microlink',
+                             capture_output=True, text=True, check=True).stdout
+        self.assertTrue(rev.startswith('216da33'), rev)
+        defaults = (ROOT / 'idf' / 'sdkconfig.defaults').read_text()
+        self.assertIn('CONFIG_ML_ENABLE_CELLULAR=n', defaults)
+        self.assertIn('CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y', defaults)
+
+
 if __name__ == '__main__':
     unittest.main()

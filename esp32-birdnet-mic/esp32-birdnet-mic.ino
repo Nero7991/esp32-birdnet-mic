@@ -6,6 +6,9 @@
 #include "driver/i2s_pdm.h"
 #include <ArduinoOTA.h>
 #include <Preferences.h>
+#ifdef BIRDNET_TS_FORK
+#include "TailscaleLink.h"
+#endif
 #include <ESPmDNS.h>
 #include <PubSubClient.h>
 #include <time.h>
@@ -3944,6 +3947,10 @@ void setup() {
         attemptTimeSync(false);
     }
     applyMdnsSetting();
+#ifdef BIRDNET_TS_FORK
+    tailscaleLoad();
+    tailscaleBegin();
+#endif
     logDeepSleepWakeSnapshotIfAny();
 
     setupOTA();
@@ -4027,6 +4034,9 @@ void loop() {
         ArduinoOTA.handle();
         wifiApRecoveryLoop();
     }
+#ifdef BIRDNET_TS_FORK
+    tailscaleLoop();
+#endif
 
     if (millis() - lastWebuiHandleMs >= WEBUI_HANDLE_INTERVAL_MS) {
         webui_handleClient();

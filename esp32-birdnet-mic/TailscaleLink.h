@@ -11,4 +11,7 @@ void tailscaleClearKey();
 bool tailscaleHasKey();
 bool tailscaleSaveHostname(const String &hostname);
 TailscaleStatus tailscaleStatus();
+void tailscaleBegin();
+void tailscaleLoop();
+IPAddress tailscaleIp();
 #endif
