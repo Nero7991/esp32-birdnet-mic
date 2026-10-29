@@ -1,0 +1,6 @@
+[submodule "idf/libs/WiFiManager"]
+	path = idf/libs/WiFiManager
+	url = https://github.com/tzapu/WiFiManager
+[submodule "idf/libs/PubSubClient"]
+	path = idf/libs/PubSubClient
+	url = https://github.com/knolleary/pubsubclient

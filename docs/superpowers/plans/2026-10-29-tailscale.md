@@ -35,7 +35,7 @@
 ### Task 1: Fork and ESP-IDF build of the unchanged firmware
 
 **Files:**
-- Create: `idf/CMakeLists.txt`, `idf/main/CMakeLists.txt`, `idf/main/idf_component.yml`, `idf/sdkconfig.defaults`, `idf/partitions.csv`, `idf/components/` (WiFiManager, PubSubClient as git submodules at the pinned tags), `idf/README.md`
+- Create: `idf/CMakeLists.txt`, `idf/main/CMakeLists.txt`, `idf/main/idf_component.yml`, `idf/sdkconfig.defaults`, `idf/partitions.csv`, `idf/libs/` (WiFiManager, PubSubClient as git submodules at the pinned tags, compiled by `main`), `idf/README.md`
 - Modify: `esp32-birdnet-mic/esp32-birdnet-mic.ino:90` (version guarded by `#ifdef BIRDNET_TS_FORK`)
 - Test: `tests/test_idf_project.py`
 

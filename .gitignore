@@ -11,3 +11,10 @@ tools/node_modules/
 
 # Editor-generated asset metadata
 *.uid-zps
+
+# ESP-IDF build of the Tailscale fork
+idf/build/
+idf/managed_components/
+idf/sdkconfig
+idf/sdkconfig.old
+idf/dependencies.lock
