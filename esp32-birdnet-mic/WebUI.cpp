@@ -25,6 +25,9 @@
 #include "WebUI_gz.h"
 #include "OtaAssets_gz.h"
 #include "FlashLayout.h"
+#ifdef BIRDNET_TS_FORK
+#include "TailscaleLink.h"
+#endif
 
 // External variables and functions from main (.ino) – ESP32 RTSP Mic for BirdNET-Go / BirdNET-Pi
 extern WiFiServer rtspServer;
@@ -921,6 +924,9 @@ static void httpStatus() {
     String json = "{";
     json.reserve(1800);
     json += "\"fw_version\":\"" + String(FW_VERSION_STR) + "\",";
+#ifdef BIRDNET_TS_FORK
+    json += "\"tailscale\":" + tailscaleStatusJson(tailscaleStatus()) + ",";
+#endif
     json += "\"board_id\":\"" + jsonEscape(String(FW_BOARD_ID_STR)) + "\",";
     json += "\"board_name\":\"" + jsonEscape(String(FW_BOARD_NAME_STR)) + "\",";
     json += "\"chip_family\":\"" + jsonEscape(String(FW_CHIP_FAMILY_STR)) + "\",";
@@ -1530,6 +1536,49 @@ static void httpSaveSchedule() {
     apiSendJSON(F("{\"ok\":true}"));
 }
 
+#ifdef BIRDNET_TS_FORK
+static void httpTailscaleGet() {
+    apiSendJSON(tailscaleStatusJson(tailscaleStatus()));
+}
+
+// Saving or removing the key restarts the device so MicroLink starts from a clean state.
+static void httpTailscaleSet() {
+    if (!requireMutationAuth()) return;
+    String clear = web.arg("clear");
+    if (clear.length() && clear != "on" && clear != "off") {
+        apiSendJSON(F("{\"ok\":false,\"error\":\"invalid_value\"}"));
+        return;
+    }
+    if (web.hasArg("hostname") && !tailscaleSaveHostname(web.arg("hostname"))) {
+        apiSendJSON(F("{\"ok\":false,\"error\":\"invalid_hostname\"}"));
+        return;
+    }
+    bool restart = false;
+    if (clear == "on") {
+        tailscaleClearKey();
+        webui_pushLog("Tailscale key removed");
+        restart = true;
+    } else if (web.hasArg("auth_key")) {
+        String key = web.arg("auth_key");
+        key.trim();
+        if (key.length() && !tailscaleKeyLooksValid(key.c_str())) {
+            apiSendJSON(F("{\"ok\":false,\"error\":\"invalid_key\"}"));
+            return;
+        }
+        if (key.length()) {
+            if (!tailscaleSaveKey(key)) {
+                apiSendJSON(F("{\"ok\":false,\"error\":\"save_failed\"}"));
+                return;
+            }
+            webui_pushLog("Tailscale key saved");
+            restart = true;
+        }
+    }
+    apiSendJSON(String("{\"ok\":true,\"restart\":") + (restart ? "true" : "false") + "}");
+    if (restart) scheduleReboot(false, 700);
+}
+#endif
+
 static void httpSaveMqtt() {
     if (!requireMutationAuth()) return;
     String enabled = web.arg("enabled"), host = web.arg("host"), user = web.arg("user");
@@ -1968,6 +2017,10 @@ void webui_begin() {
     web.on("/api/settings/s3_board", HTTP_POST, httpSaveS3Board);
     web.on("/api/settings/schedule", HTTP_POST, httpSaveSchedule);
     web.on("/api/settings/mqtt", HTTP_POST, httpSaveMqtt);
+#ifdef BIRDNET_TS_FORK
+    web.on("/api/tailscale", HTTP_GET, httpTailscaleGet);
+    web.on("/api/tailscale", HTTP_POST, httpTailscaleSet);
+#endif
     static const char* headerKeys[] = { UI_MUTATION_HEADER };
     web.collectHeaders(headerKeys, 1);
     web.begin();
