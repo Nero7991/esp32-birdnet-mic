@@ -123,3 +123,14 @@ queues with timeout 0, so it cannot deadlock against the DERP sender.
   RTSP sender enough to matter. Not measured.
 - A one-off 20 s delay before the first tailnet pull started streaming was not reproduced
   (`ffprobe` over the tailnet then took 0.07 s). Cause unknown.
+
+## Update (2026-10-31): one-hour soak
+
+Answers the first open item. Fork `3a4ce30` with MicroLink `a8308b3`, one-hour RTSP/TCP pull
+over the tailnet (direct path): exit 0, 3600.0 s of audio, no reboot, no panic or assert in
+27 MB of serial log. Against the stock v1.36 one-hour LAN baseline: `rb_drops` 0 vs 312,
+`rtsp_write_stalls` 1197 vs 309, `rtsp_write_failures` 1 vs 0 (at teardown, when the client
+closed at 3600 s), DMA overruns and I2S errors 0 in both. Write stalls are about 4x higher but
+cost no audio. The second open item (core lock held during handshake crypto) is
+unchanged: the stall count is consistent with it but does not isolate it. The DERP-relayed path
+was not soaked.
