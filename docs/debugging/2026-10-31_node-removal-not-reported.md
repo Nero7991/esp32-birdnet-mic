@@ -124,3 +124,30 @@ MicroLink fork `Nero7991/microlink` branch `lwip-core-lock`, commit `1a31126`:
 - Whether a single-use (non-reusable) key survives reconnects. If MicroLink resends the used
   key on every registration, a single-use key would lock the mic out after its first
   reconnect.
+
+## Update (2026-10-31): both open items answered
+
+Build `9bbba97` (MicroLink `1a31126`), new key: single-use (Reusable off), pre-approved, tagged.
+
+- **A used single-use key survives reconnects.** Two reboots each re-registered
+  (`RegisterResponse: 193 bytes`, `Our VPN IP: 100.76.1.18`) and reached `connected`. The
+  server recognises the existing node key, so the spent key is not a problem.
+- **Live removal is detected.** Machine removed in the console while connected, no key
+  revoked:
+
+```
+E (116495) ml_coord: Control server: node not found (removed from the tailnet)
+W (116496) ml_coord: Long-poll connection lost
+I (116496) ml_coord: Reconnecting in 60000 ms (attempt 1)
+E (177238) ml_coord: Control server rejected registration: invalid key
+I (177240) ml_coord: Reconnecting in 60000 ms (attempt 2)
+```
+
+  `/api/tailscale` showed `state` `error` with the rejected text from the first poll after
+  the removal, for 2 minutes, no reboot. With a single-use key the removal sticks, because the
+  spent key cannot register a new node. Use single-use keys for deployed mics.
+
+Still open: `ip` keeps the last tailnet address while in `error` (cosmetic; `peer_path` is
+already cleared).
+
+Measurement trap, again: `pkill -f <pattern>` matched its own shell (exit 144). Kill by PID.

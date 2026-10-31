@@ -40,9 +40,10 @@ On the tailnet the mic should join (yours, or a friend's):
 
 1. Access controls: give a tag an owner, for example
    `"tagOwners": {"tag:birdnet-mic": ["autogroup:admin"]}`.
-2. Settings > Keys > Generate auth key: Reusable, Pre-approved, Tags = `tag:birdnet-mic`,
-   Ephemeral off. Tagged devices do not expire, so the node stays joined after the key's own
-   expiry date.
+2. Settings > Keys > Generate auth key: Reusable off, Pre-approved, Tags = `tag:birdnet-mic`,
+   Ephemeral off. A single-use key is enough: the mic keeps reconnecting with its node key
+   after the key is spent, and removing the machine then sticks. Tagged devices do not
+   expire, so the node stays joined after the key's own expiry date.
 3. Enter the key on the mic, either in the web UI (Tailscale card, Save key) or from a
    terminal on the same network:
 
@@ -77,9 +78,10 @@ settings and upload firmware. Leave it out if only the stream is needed.
 While rejected, the device retries once a minute. Tailscale problems never restart the
 device; the LAN web UI and LAN streams keep working.
 
-To take the mic off a tailnet, use Remove key in the card, or revoke its auth key in the
-admin console (Settings > Keys) and then remove the machine. Removing the machine alone does
-not last: with a reusable key the mic registers again the next time it reconnects.
+To take the mic off a tailnet, remove the machine in the admin console; the mic shows the
+"rejected" text within about 30 s. With a reusable key that does not last: the mic registers
+again the next time it reconnects, so also revoke the key (Settings > Keys). Remove key in
+the card takes it off from the mic's side.
 
 ## Test results
 
@@ -112,7 +114,8 @@ Other checks:
   `last_error` showed the "Cannot reach Tailscale" text after 30 s; reconnected about 9 s after
   the block was lifted.
 - The official-host update is refused with HTTP 403; file upload still works.
-- Revoked key: `state` `error` with the "rejected" text, steady across retries, no reboot
+- Revoked key, and machine removed while connected: `state` `error` with the "rejected"
+  text, steady across retries, no reboot. A spent single-use key reconnects after reboots
   (see `docs/debugging/2026-10-31_node-removal-not-reported.md`).
 - No auth-key text in the one-hour serial log, `/api/logs`, `/api/status`, `/api/tailscale` or
   the git history (only the obviously fake test fixture).
