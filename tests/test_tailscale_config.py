@@ -277,6 +277,14 @@ class TailscaleLinkTests(unittest.TestCase):
         self.assertIsNotNone(m)
         self.assertGreaterEqual(int(m.group(1)) / 0.150, 96000)
 
+    def test_fork_audio_ring_in_psram_covers_wan_stalls(self):
+        # A remote client's TCP loss recovery stalls longer than the 0.47 s internal ring;
+        # the fork keeps 4 s in PSRAM so the backlog survives and drains afterwards.
+        sketch = (SKETCH_DIR / 'esp32-birdnet-mic.ino').read_text()
+        self.assertRegex(sketch, r'#if \(defined\(CONFIG_IDF_TARGET_ESP32C5\) \|\| defined\(BIRDNET_TS_FORK\)\) && CONFIG_SPIRAM\n#define AUDIO_RING_IN_PSRAM 1')
+        cap = function(sketch, 'static size_t computeAudioRingBufferCapacity()')
+        self.assertRegex(cap, r'#if AUDIO_RING_IN_PSRAM && defined\(BIRDNET_TS_FORK\)\n(?:\s*//.*\n)*\s*size_t remote = \(size_t\)currentSampleRate \* sizeof\(int16_t\) \* 4;')
+
     def test_per_packet_logs_quiet(self):
         begin = function(self.link, 'void tailscaleBegin()')
         self.assertIn('esp_log_level_set("ml_wg_mgr", ESP_LOG_WARN)', begin)

@@ -49,7 +49,8 @@
 // Wi-Fi bursts. DMA and PDM working buffers stay internal. Needs board option
 // PSRAM=enabled (-DBOARD_HAS_PSRAM; tools/compile_firmware.sh adds it for C5).
 // Without it the core clears CONFIG_SPIRAM and the internal-RAM path is used.
-#if defined(CONFIG_IDF_TARGET_ESP32C5) && CONFIG_SPIRAM
+// The Tailscale fork (ESP-IDF build, PSRAM on) does the same on the S3.
+#if (defined(CONFIG_IDF_TARGET_ESP32C5) || defined(BIRDNET_TS_FORK)) && CONFIG_SPIRAM
 #define AUDIO_RING_IN_PSRAM 1
 #else
 #define AUDIO_RING_IN_PSRAM 0
@@ -2715,6 +2716,12 @@ static size_t computeAudioRingBufferCapacity() {
     // 64 chunks (~683 ms at 48 kHz/512 samples) of internal TCP jitter reserve.
     // Extra reserve is drained on recovery, rather than adding a fixed delay.
     if (currentBufferSize <= 2048 && capacity < 65536) capacity = 65536;
+#if AUDIO_RING_IN_PSRAM && defined(BIRDNET_TS_FORK)
+    // A client across the internet stalls for longer than that during TCP loss recovery.
+    // Hold 4 s; the backlog drains once the link recovers.
+    size_t remote = (size_t)currentSampleRate * sizeof(int16_t) * 4;
+    if (capacity < remote) capacity = remote;
+#endif
     if (capacity < 4096) capacity = 4096;
     return capacity;
 }
