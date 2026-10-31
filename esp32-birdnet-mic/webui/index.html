@@ -964,6 +964,37 @@
 <button onclick="act('mqtt_discovery')">Re-publish Discovery</button>
 </div>
 </details>
+<details id='tailscalesec' class='card' hidden>
+<summary class='sum'><span><span class='section-title' id='t_tailscale'>Tailscale</span><span class='section-note'>Reach this device from a tailnet</span></span><span class='chev' aria-hidden='true'></span></summary>
+<h3>Status</h3><table>
+<tr><td class='k'>State</td><td class='v' id='ts_state'></td></tr>
+<tr><td class='k'>Tailnet address</td><td class='v mono' id='ts_ip'></td></tr>
+<tr><td class='k'>Connection</td><td class='v' id='ts_path'></td></tr>
+<tr><td class='k'>Stream URL</td><td class='v mono' id='ts_url'></td></tr>
+<tr><td class='k'>Last error</td><td class='v' id='ts_err'></td></tr>
+</table>
+<h3>Auth key</h3><table>
+<tr>
+<td class='k'>Key</td>
+<td class='v'>
+<div class='field'>
+<input id='in_ts_key' type='password' autocomplete='off' spellcheck='false' placeholder='tskey-auth-...' maxlength='200'>
+</div>
+</td>
+</tr>
+</table><p class='muted' id='ts_key_note'>The key is stored on the device and never shown again. Saving or removing it restarts the device.</p><div class='actions'><button id='btn_ts_key' onclick='saveTailscaleKey()'>Save key</button><button id='btn_ts_clear' onclick='clearTailscaleKey()'>Remove key</button></div>
+<h3>Device name</h3><table>
+<tr>
+<td class='k'>Name on tailnet</td>
+<td class='v'>
+<div class='field'>
+<input id='in_ts_host' type='text' maxlength='63' placeholder='Uses the mDNS hostname'>
+<button onclick='saveTailscaleHost()'>Apply</button>
+</div>
+</td>
+</tr>
+</table><p class='muted'>Lowercase letters, digits and hyphens. Takes effect after the next restart.</p>
+</details>
 <details id='logssec' class='card'>
 <summary class='sum'>
 <span class='section-title' id='t_logs'>Logs</span>
@@ -1138,6 +1169,49 @@ async function saveSchedule(){
  await saveValues('/api/settings/schedule',{enabled,start,stop,sleep},scheduleKeys,'timesec','Schedule saved.');
 }
 const mqttConnectionKeys=['mqtt_enable','mqtt_host','mqtt_port','mqtt_user','mqtt_pass','mqtt_clear_password'];
+const tsStates={off:'Off',waiting_wifi:'Waiting for network',connecting:'Connecting',registering:'Registering',connected:'Connected',reconnecting:'Reconnecting',error:'Error',no_psram:'Unavailable (no PSRAM)',no_key:'No auth key'};
+const tsErrors={invalid_key:'This is not a Tailscale auth key. It starts with tskey-auth-.',invalid_hostname:'Use lowercase letters, digits and hyphens, up to 63 characters.',save_failed:'The device could not store the key. Try again.',invalid_value:'The device rejected the request.'};
+function loadTailscale(j){
+ const sec=$('tailscalesec'),t=j.tailscale;
+ if(!sec)return;
+ sec.hidden=!t;
+ if(!t)return;
+ $('ts_state').textContent=tsStates[t.state]||t.state;
+ $('ts_ip').textContent=t.ip||'Not assigned';
+ $('ts_path').textContent=t.peer_path==='direct'?'Direct':t.peer_path==='derp'?'Relayed (DERP)':'None';
+ $('ts_url').textContent=j.stream1_url_tailnet||'Not available';
+ $('ts_err').textContent=t.last_error||'None';
+ $('btn_ts_clear').disabled=!t.has_key;
+ syncInput($('in_ts_host'),'ts_host',t.hostname||'');
+}
+async function postTailscale(values,okText){
+ if(sectionBusy.has('tailscalesec'))return null;
+ sectionBusy.add('tailscalesec');feedback('tailscalesec','Saving…');
+ try{
+  const response=await mutationFetch('/api/tailscale',new URLSearchParams(values).toString());
+  const result=await response.json();
+  if(!response.ok||!result.ok)throw new Error(tsErrors[result.error]||'The device could not apply the change. Try again.');
+  feedback('tailscalesec',okText,'ok');return result;
+ }catch(error){feedback('tailscalesec',error.message,'bad');return null;}
+ finally{sectionBusy.delete('tailscalesec');}
+}
+async function saveTailscaleKey(){
+ const input=$('in_ts_key'),key=input.value.trim();
+ if(!/^tskey-auth-[!-~]{9,189}$/.test(key)){feedback('tailscalesec',tsErrors.invalid_key,'bad');return;}
+ input.value='';
+ const result=await postTailscale({auth_key:key},'Key saved. The device is restarting.');
+ if(result&&result.restart)rebootSequence('reboot');
+}
+async function clearTailscaleKey(){
+ if(!confirm('Remove the Tailscale key and restart? The device leaves the tailnet.'))return;
+ const result=await postTailscale({clear:'on'},'Key removed. The device is restarting.');
+ if(result&&result.restart)rebootSequence('reboot');
+}
+async function saveTailscaleHost(){
+ const host=$('in_ts_host').value.trim();
+ if(host&&!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(host)){feedback('tailscalesec',tsErrors.invalid_hostname,'bad');return;}
+ if(await postTailscale({hostname:host},'Name saved. It applies after the next restart.'))clearDirty('ts_host');
+}
 async function saveMqttConnection(){
  const enabled=$('sel_mqtt_en').value,host=$('in_mqtt_host').value.trim(),port=$('in_mqtt_port').value;
  const password=$('in_mqtt_pass').value,clear=$('mqtt_clear_password').checked;
@@ -1234,7 +1308,7 @@ function updateOverview(kind,j){
  if(status.stream_schedule_enabled&&!status.stream_schedule_time_valid)text+=' · schedule waiting for clock';
  put('overview_streams',text,cls);const link=$('overview_streams');link.href='#'+target;link.onclick=()=>openSection(target);
 }
-function loadStatus(){return fetchJSON('/api/status').then(j=>{ updateOverview('status',j); $('ip').textContent=j.ip; $('rssi').textContent=j.wifi_rssi+' dBm'; $('wtx').textContent=j.wifi_tx_dbm.toFixed(1)+' dBm'; $('heap').textContent=j.free_heap_kb+' KB ('+j.min_free_heap_kb+' KB)'; $('uptime').textContent=j.uptime; $('srv').innerHTML=fmtSrv(j.rtsp_server_enabled); setToggleState(j.rtsp_server_enabled); $('s1_client').textContent=(j.s1_clients>0)?j.s1_clients+' client(s)':j.stream1_enabled?'Waiting...':'Disabled'; $('s1_stream').innerHTML=fmtBool(j.s1_streaming); $('s1_rate').textContent=j.s1_pkt_rate+' pkt/s'; $('s1_lplay').textContent=j.s1_last_play||'never'; $('s2_client').textContent=(j.s2_clients>0)?j.s2_clients+' client(s)':(j.stream2_enabled?'Waiting...':'Disabled'); $('s2_stream').innerHTML=j.stream2_enabled?fmtBool(j.s2_streaming):'<span class=muted>N/A</span>'; $('s2_rate').textContent=j.stream2_enabled?(j.s2_pkt_rate+' pkt/s'):'—'; $('s2_lplay').textContent=j.stream2_enabled?(j.s2_last_play||'never'):'—'; $('time_sync').innerHTML=fmtBool(j.time_synced); $('last_sync').textContent=j.last_time_sync; renderTimeRows(j); const now=Date.now(); const stx=$('sel_tx'); syncInput(stx,'wifi_tx',j.wifi_tx_dbm.toFixed(1)); const md=$('sel_mdns'); syncInput(md,'mdns_enable',j.mdns_enabled?'on':'off'); const mh=$('in_mdns_host'); syncInput(mh,'mdns_hostname',j.mdns_hostname||''); const tse=$('sel_time_sync'); syncInput(tse,'time_sync',j.time_sync_enabled?'on':'off'); const zoneSel=$('sel_time_zone_mode'); syncInput(zoneSel,'time_zone_mode',String(j.time_zone_mode||0)); updateTimeZoneVisibility(); const ruleInput=$('in_time_zone_rule'); syncInput(ruleInput,'time_zone_rule',j.time_zone_rule||''); const offSel=$('sel_offset'); if(offSel)syncInput(offSel,'time_offset',String((j.time_offset_min||0)/60)); const fv=$('fwv'); if(fv && j.fw_version){ fv.textContent='v'+j.fw_version; } const ui=$('url_ip'); if(ui){ ui.textContent=j.stream1_url_ip; ui.href=j.stream1_url_ip; } const um=$('url_mdns'); const umw=$('url_mdns_wrap'); if(um){ if(j.mdns_enabled){ um.textContent=j.stream1_url_mdns; um.href=j.stream1_url_mdns; um.style.opacity='1'; if(umw) umw.style.display=''; } else { um.textContent='—'; um.removeAttribute('href'); um.style.opacity='0.6'; if(umw) umw.style.display='none'; } } const u2=$('url2_ip'); if(u2){ u2.textContent=j.stream2_url_ip; u2.href=j.stream2_url_ip; } const u2m=$('url2_mdns'); const u2mw=$('url2_mdns_wrap'); if(u2m){ if(j.mdns_enabled){ u2m.textContent=j.stream2_url_mdns; u2m.href=j.stream2_url_mdns; u2m.style.opacity='1'; if(u2mw) u2mw.style.display=''; } else { u2m.textContent='—'; u2m.removeAttribute('href'); u2m.style.opacity='0.6'; if(u2mw) u2mw.style.display='none'; } } const s1t=$('sel_stream1_target'); syncInput(s1t,'stream1_target',String(j.stream1_target||0)); const s2t=$('sel_stream2_target'); syncInput(s2t,'stream2_target',String(j.stream2_target||0)); const s1e=$('sel_stream1_enabled'); syncInput(s1e,'stream1_enabled',j.stream1_enabled?'on':'off'); const s2e=$('sel_stream2_enabled'); syncInput(s2e,'stream2_enabled',j.stream2_enabled?'on':'off'); const s1tp=$('s1_transport'); if(s1tp) s1tp.textContent=(j.stream1_target===0)?'TCP':'UDP'; const s2tp=$('s2_transport'); if(s2tp) s2tp.textContent=(j.stream2_target===0)?'TCP':'UDP'; const mc=$('sel_max_clients'); syncInput(mc,'max_clients',String(j.max_clients||2)); loadStreamSchedule(j); loadMqtt(j); })}function renderAudioLevel(j){
+function loadStatus(){return fetchJSON('/api/status').then(j=>{ updateOverview('status',j); $('ip').textContent=j.ip; $('rssi').textContent=j.wifi_rssi+' dBm'; $('wtx').textContent=j.wifi_tx_dbm.toFixed(1)+' dBm'; $('heap').textContent=j.free_heap_kb+' KB ('+j.min_free_heap_kb+' KB)'; $('uptime').textContent=j.uptime; $('srv').innerHTML=fmtSrv(j.rtsp_server_enabled); setToggleState(j.rtsp_server_enabled); $('s1_client').textContent=(j.s1_clients>0)?j.s1_clients+' client(s)':j.stream1_enabled?'Waiting...':'Disabled'; $('s1_stream').innerHTML=fmtBool(j.s1_streaming); $('s1_rate').textContent=j.s1_pkt_rate+' pkt/s'; $('s1_lplay').textContent=j.s1_last_play||'never'; $('s2_client').textContent=(j.s2_clients>0)?j.s2_clients+' client(s)':(j.stream2_enabled?'Waiting...':'Disabled'); $('s2_stream').innerHTML=j.stream2_enabled?fmtBool(j.s2_streaming):'<span class=muted>N/A</span>'; $('s2_rate').textContent=j.stream2_enabled?(j.s2_pkt_rate+' pkt/s'):'—'; $('s2_lplay').textContent=j.stream2_enabled?(j.s2_last_play||'never'):'—'; $('time_sync').innerHTML=fmtBool(j.time_synced); $('last_sync').textContent=j.last_time_sync; renderTimeRows(j); const now=Date.now(); const stx=$('sel_tx'); syncInput(stx,'wifi_tx',j.wifi_tx_dbm.toFixed(1)); const md=$('sel_mdns'); syncInput(md,'mdns_enable',j.mdns_enabled?'on':'off'); const mh=$('in_mdns_host'); syncInput(mh,'mdns_hostname',j.mdns_hostname||''); const tse=$('sel_time_sync'); syncInput(tse,'time_sync',j.time_sync_enabled?'on':'off'); const zoneSel=$('sel_time_zone_mode'); syncInput(zoneSel,'time_zone_mode',String(j.time_zone_mode||0)); updateTimeZoneVisibility(); const ruleInput=$('in_time_zone_rule'); syncInput(ruleInput,'time_zone_rule',j.time_zone_rule||''); const offSel=$('sel_offset'); if(offSel)syncInput(offSel,'time_offset',String((j.time_offset_min||0)/60)); const fv=$('fwv'); if(fv && j.fw_version){ fv.textContent='v'+j.fw_version; } const ui=$('url_ip'); if(ui){ ui.textContent=j.stream1_url_ip; ui.href=j.stream1_url_ip; } const um=$('url_mdns'); const umw=$('url_mdns_wrap'); if(um){ if(j.mdns_enabled){ um.textContent=j.stream1_url_mdns; um.href=j.stream1_url_mdns; um.style.opacity='1'; if(umw) umw.style.display=''; } else { um.textContent='—'; um.removeAttribute('href'); um.style.opacity='0.6'; if(umw) umw.style.display='none'; } } const u2=$('url2_ip'); if(u2){ u2.textContent=j.stream2_url_ip; u2.href=j.stream2_url_ip; } const u2m=$('url2_mdns'); const u2mw=$('url2_mdns_wrap'); if(u2m){ if(j.mdns_enabled){ u2m.textContent=j.stream2_url_mdns; u2m.href=j.stream2_url_mdns; u2m.style.opacity='1'; if(u2mw) u2mw.style.display=''; } else { u2m.textContent='—'; u2m.removeAttribute('href'); u2m.style.opacity='0.6'; if(u2mw) u2mw.style.display='none'; } } const s1t=$('sel_stream1_target'); syncInput(s1t,'stream1_target',String(j.stream1_target||0)); const s2t=$('sel_stream2_target'); syncInput(s2t,'stream2_target',String(j.stream2_target||0)); const s1e=$('sel_stream1_enabled'); syncInput(s1e,'stream1_enabled',j.stream1_enabled?'on':'off'); const s2e=$('sel_stream2_enabled'); syncInput(s2e,'stream2_enabled',j.stream2_enabled?'on':'off'); const s1tp=$('s1_transport'); if(s1tp) s1tp.textContent=(j.stream1_target===0)?'TCP':'UDP'; const s2tp=$('s2_transport'); if(s2tp) s2tp.textContent=(j.stream2_target===0)?'TCP':'UDP'; const mc=$('sel_max_clients'); syncInput(mc,'max_clients',String(j.max_clients||2)); loadStreamSchedule(j); loadMqtt(j); loadTailscale(j); })}function renderAudioLevel(j){
  const lvl=$('level'); if(!lvl) return;
  const L=T[lang]||T.en;
  const pct=typeof j.peak_pct==='number'&&Number.isFinite(j.peak_pct)?j.peak_pct:0;

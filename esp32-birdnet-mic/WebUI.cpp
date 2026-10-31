@@ -415,7 +415,11 @@ static void sendOtaPage(const String &message = String(), bool ok = true, int ht
         html += htmlEscape(defaultOtaUrl);
         html += F("</code></p>");
     } else {
+#ifdef BIRDNET_TS_FORK
+        html += F("<p class='muted'>This firmware is a fork with Tailscale. Install updates by file upload.</p>");
+#else
         html += F("<p class='bad'>Automatic update is unavailable for this board profile. Upload a matching app-only firmware file manually.</p>");
+#endif
     }
     html += F("</div>");
     html += F("<div class='card'><h2>Upload compiled file</h2><p class='muted'>Use this when the device has no internet access. Select the matching app-only file such as <code>firmware-app-c3.bin</code>, <code>firmware-app-s3.bin</code>, <code>firmware-app-c5.bin</code>, or <code>firmware-app-c6.bin</code>. Do not upload the USB <code>firmware.bin</code> merged image here.</p>");
@@ -766,6 +770,10 @@ static void httpOtaPage() {
 
 static void httpOtaInstall() {
     if (!requireMutationAuth()) return;
+#ifdef BIRDNET_TS_FORK
+    sendOtaPage(F("This firmware is a fork with Tailscale. Install updates by file upload."), false, 403);
+    return;
+#endif
     String error;
     if (!flashlayout::otaAllowed(error)) {
         sendOtaPage(error, false, 409);

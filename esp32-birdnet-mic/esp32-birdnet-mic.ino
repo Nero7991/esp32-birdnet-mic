@@ -135,7 +135,12 @@ const char* FW_BUILD_DATE_STR = __DATE__ " " __TIME__;
 const char* FW_BOARD_ID_STR = XIAO_BOARD_ID;
 const char* FW_BOARD_NAME_STR = XIAO_BOARD_NAME;
 const char* FW_CHIP_FAMILY_STR = XIAO_CHIP_FAMILY;
+// The fork never pulls upstream images: they would replace it and remove Tailscale.
+#ifdef BIRDNET_TS_FORK
+const char* FW_OTA_ARTIFACT_STR = "";
+#else
 const char* FW_OTA_ARTIFACT_STR = XIAO_OTA_ARTIFACT;
+#endif
 
 // Time / NTP
 const char* NTP_SERVER_1 = "pool.ntp.org";

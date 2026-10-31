@@ -23,7 +23,7 @@ const fixture=require('./fixtures/ui-state.json');
   });
   const load=async()=>{await page.goto('http://ui.test/');await page.waitForFunction(()=>document.querySelector('#overview_mic').textContent==='Microphone: OK');};
   await load();
-  const sections=page.locator('details.card');
+  const sections=page.locator('details.card:not([hidden])');
   assert.equal(await sections.count(),9);
   assert.equal(await page.locator('details.card[open]').count(),0);
   assert(await page.locator('#listen_button').isVisible());
