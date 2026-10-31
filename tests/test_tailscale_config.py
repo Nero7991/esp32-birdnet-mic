@@ -269,6 +269,14 @@ class TailscaleLinkTests(unittest.TestCase):
         self.assertIsNotNone(m)
         self.assertGreaterEqual(int(m.group(1)), 6144)
 
+    def test_tcp_send_buffer_covers_remote_rtt(self):
+        # Throughput is capped at send buffer / RTT. The 48 kHz stream needs ~99 KB/s; the
+        # default 5760 bytes fell short at ~62 ms to a remote BirdNET-Go and dropped audio.
+        defaults = (ROOT / 'idf' / 'sdkconfig.defaults').read_text()
+        m = re.search(r'^CONFIG_LWIP_TCP_SND_BUF_DEFAULT=(\d+)$', defaults, re.M)
+        self.assertIsNotNone(m)
+        self.assertGreaterEqual(int(m.group(1)) / 0.150, 96000)
+
     def test_per_packet_logs_quiet(self):
         begin = function(self.link, 'void tailscaleBegin()')
         self.assertIn('esp_log_level_set("ml_wg_mgr", ESP_LOG_WARN)', begin)

@@ -47,6 +47,11 @@ CONFIG_ESP_TASK_WDT_TIMEOUT_S=30
 # during an RTSP stream over the tailnet (docs/debugging/2026-10-30_tailnet-rtsp-panics.md).
 CONFIG_LWIP_TCPIP_TASK_STACK_SIZE=6144
 
+# A TCP sender has at most one send buffer in flight per round trip. The 48 kHz stream needs
+# ~99 KB/s, so the default 5760 bytes dropped audio to a BirdNET-Go ~62 ms away. 14400 bytes
+# (10 segments) covers up to ~150 ms.
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=14400
+
 # MicroLink's ml_wg_mgr task calls lwIP and wireguardif outside the tcpip thread; the fork
 # of MicroLink holds the core lock for those calls. The checker asserts on any raw lwIP
 # call made without the lock (same debugging file).
