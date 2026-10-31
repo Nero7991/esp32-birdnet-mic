@@ -151,3 +151,42 @@ Still open: `ip` keeps the last tailnet address while in `error` (cosmetic; `pee
 already cleared).
 
 Measurement trap, again: `pkill -f <pattern>` matched its own shell (exit 144). Kill by PID.
+
+## Update (2026-10-31): a removed node's key blocks a move to another tailnet
+
+Question: after the mic was removed from the owner's tailnet, a single-use key from a second
+(friend's) tailnet was entered with `set-tailscale-key.sh`. The mic showed `error` / rejected.
+
+Answer: MicroLink keeps its machine, node (WireGuard) and DISCO keys in NVS namespace
+`microlink` across key changes, so it registered the deleted node's node key with the new
+tailnet's auth key, and the control server refused it.
+
+Evidence (serial, build `f1cf572`, after the key was saved and the device restarted):
+
+```
+I (64563) ml_coord: RegisterResponse: 93 bytes total data
+I (64564) ml_coord: RegisterResponse first 32 bytes (hex): 6e 6f 64 65 20 6e 6f 64 65 6b 65 79 3a 33 36 37 ...
+                                                           node nodekey:367...
+W (64564) ml_coord: No '{' found in RegisterResponse data
+E (64822) ml_coord: Control server: node not found (removed from the tailnet)
+```
+
+Only the first 32 bytes of the 93-byte text reply are logged, so the server's exact wording
+was not seen; what it names is the node key.
+
+Fix: `tailscaleSaveKey()` and `tailscaleClearKey()` call `microlink_factory_reset()`, which
+erases the stored keys and cached peers, so the restart after a key change is a fresh login
+with a new node key (as `tailscale up` does for a new account). Test
+`test_new_key_starts_a_new_node`. Verified: after re-entering the same friend key, the mic
+joined the friend's tailnet as 100.71.211.26 (direct) within about 15 s of the restart. The
+single-use key had not been consumed by the refused attempt.
+
+Consequence: saving the same key again also creates a new machine; the old entry stays in
+the admin console until removed.
+
+Measured and rejected (do not retry): re-entering a key without resetting the node key. It
+fails whenever the previous machine was removed.
+
+Not determined: whether the plain-text register reply also needs handling in
+`ml_ctrl_register_error()`. Here the MapRequest that followed returned `node not found`, so
+the rejection was reported anyway.

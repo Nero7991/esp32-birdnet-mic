@@ -50,7 +50,9 @@ On the tailnet the mic should join (yours, or a friend's):
        idf/tools/set-tailscale-key.sh <mic-lan-ip>
 
    The helper reads the key at a hidden prompt and never shows or logs it. The device
-   restarts and joins within a few seconds.
+   restarts and joins within a few seconds. Saving a key is a fresh login: the mic gets a new
+   node key and appears as a new machine, so moving it to another tailnet needs nothing more
+   than the new key. Remove the old machine from the previous tailnet.
 
 Allow the server that pulls the stream to reach the mic. A grant in the tailnet policy:
 

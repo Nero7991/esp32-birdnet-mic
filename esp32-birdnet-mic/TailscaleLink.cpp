@@ -38,8 +38,12 @@ bool tailscaleSaveKey(const String &key) {
     if (!prefs.begin(TS_NVS_NAMESPACE, false)) return false;
     bool ok = prefs.putString("key", key) == key.length();
     prefs.end();
-    if (ok) tailscaleLoad();
-    return ok;
+    if (!ok) return false;
+    // A new key is a new login: drop the stored node key, which the control server refuses
+    // once its machine was removed, or when it belongs to another tailnet.
+    microlink_factory_reset();
+    tailscaleLoad();
+    return true;
 }
 
 void tailscaleClearKey() {
@@ -49,6 +53,7 @@ void tailscaleClearKey() {
         prefs.end();
     }
     memset(tsAuthKey, 0, sizeof(tsAuthKey));
+    microlink_factory_reset();
     tsState = TS_STATE_NO_KEY;
 }
 

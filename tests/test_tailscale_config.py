@@ -244,6 +244,14 @@ class TailscaleLinkTests(unittest.TestCase):
         self.assertIn('tsLastError = tailscaleProblem(', loop)
         self.assertIn('tsPeerPath = tailscalePeerPath(', loop)
 
+    def test_new_key_starts_a_new_node(self):
+        # A node key deleted from one tailnet is refused when registering with another
+        # tailnet's key (docs/debugging/2026-10-31_node-removal-not-reported.md), so a saved
+        # or removed auth key also drops MicroLink's stored keys, as a fresh login would.
+        save = function(self.link, 'bool tailscaleSaveKey(const String &key)')
+        self.assertLess(save.index('prefs.putString("key", key)'), save.index('microlink_factory_reset()'))
+        self.assertIn('microlink_factory_reset()', function(self.link, 'void tailscaleClearKey()'))
+
     def test_no_restart_on_failure(self):
         self.assertNotIn('ESP.restart', self.link)
         self.assertNotIn('esp_restart', self.link)
