@@ -99,6 +99,44 @@ std::cout << tailscaleStatusJson(s);
             self.assertRegex(use, r'tailscaleKeyLooksValid\(' + var + r'\.c_str\(\)\)|tailscaleSaveKey\(' + var +
                              r'\)|' + var + r'\.length\(\)|' + var + r'\.trim\(\)', use)
 
+    def test_fork_image_check(self):
+        # Uploading upstream's image would drop a remote mic off the tailnet for good.
+        self.run_native(r'''
+uint8_t img[128] = {0};
+img[0] = 0xE9;
+img[32] = 0x32; img[33] = 0x54; img[34] = 0xCD; img[35] = 0xAB;
+memcpy(img + 80, "birdnet-mic-ts", 14);
+assert(forkImageIsOurs(img, sizeof(img)));
+assert(!forkImageIsOurs(img, 111));
+assert(!forkImageIsOurs(nullptr, 0));
+uint8_t other[128];
+memcpy(other, img, sizeof(img));
+memset(other + 80, 0, 32);
+memcpy(other + 80, "arduino-lib-builder", 19);
+assert(!forkImageIsOurs(other, sizeof(other)));
+memcpy(other, img, sizeof(img));
+memcpy(other + 80, "birdnet-mic-ts-x", 16);
+assert(!forkImageIsOurs(other, sizeof(other)));
+memcpy(other, img, sizeof(img));
+other[32] = 0;
+assert(!forkImageIsOurs(other, sizeof(other)));
+memcpy(other, img, sizeof(img));
+other[0] = 0;
+assert(!forkImageIsOurs(other, sizeof(other)));
+''')
+
+    def test_upload_rejects_other_images(self):
+        web = (SKETCH_DIR / 'WebUI.cpp').read_text()
+        chunk = function(web, 'static void httpOtaUploadChunk()')
+        self.assertRegex(chunk, r'#ifdef BIRDNET_TS_FORK\s*\n\s*if \(otaUploadFirstChunk && !forkImageIsOurs\(upload\.buf, upload\.currentSize\)\)')
+        self.assertIn('otaUploadFirstChunk = true;', chunk)
+        self.assertIn('birdnet-mic-ts.bin', web)
+
+    def test_factory_reset_leaves_the_tailnet(self):
+        sketch = (SKETCH_DIR / 'esp32-birdnet-mic.ino').read_text()
+        reset = function(sketch, 'void resetToDefaultSettings()')
+        self.assertRegex(reset, r'#ifdef BIRDNET_TS_FORK\s*\n\s*tailscaleClearKey\(\);\s*\n\s*#endif')
+
     def test_problem_text_and_peer_path(self):
         out = self.run_native(r'''
 std::cout << "[" << tailscaleProblem(4, 999999) << "]\n";

@@ -2409,6 +2409,9 @@ uint32_t computeRecommendedMinRate() {
 void resetToDefaultSettings() {
     simplePrintln("FACTORY RESET: Restoring default settings...");
     wifiApSave(nullptr);
+#ifdef BIRDNET_TS_FORK
+    tailscaleClearKey();
+#endif
     clearStoredBssidPin();
 
     // Clear persisted settings in our namespace

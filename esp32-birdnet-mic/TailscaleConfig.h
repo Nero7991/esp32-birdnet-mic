@@ -2,6 +2,7 @@
 // Tailscale (fork build): pure helpers shared by TailscaleLink and the host tests.
 // Nothing here ever handles the auth key beyond checking its shape.
 
+#include <cstdint>
 #include <cstring>
 
 static constexpr int TS_STATE_NO_PSRAM = 100;
@@ -56,6 +57,16 @@ inline const char *tailscaleProblem(int state, unsigned long notConnectedMs) {
 // The peer path is only meaningful while connected; MicroLink keeps cached peers otherwise.
 inline const char *tailscalePeerPath(int state, const char *path) {
     return state == 4 && path ? path : "";
+}
+
+// True if an app image was built from this fork (ESP-IDF project "birdnet-mic-ts"). The
+// project name sits in esp_app_desc_t, after the 24-byte image header and the 8-byte
+// segment header. Uploading upstream's image would drop a remote mic off the tailnet.
+inline bool forkImageIsOurs(const uint8_t *image, size_t len) {
+    static const char kProject[] = "birdnet-mic-ts";
+    if (!image || len < 112 || image[0] != 0xE9) return false;
+    if (image[32] != 0x32 || image[33] != 0x54 || image[34] != 0xCD || image[35] != 0xAB) return false;
+    return memcmp(image + 80, kProject, sizeof(kProject)) == 0;
 }
 
 inline String tailscaleJsonString(const char *text) {

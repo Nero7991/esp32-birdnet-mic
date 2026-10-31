@@ -422,7 +422,11 @@ static void sendOtaPage(const String &message = String(), bool ok = true, int ht
 #endif
     }
     html += F("</div>");
+#ifdef BIRDNET_TS_FORK
+    html += F("<div class='card'><h2>Upload compiled file</h2><p class='muted'>Select <code>birdnet-mic-ts.bin</code> from the fork's <code>idf/build</code> folder. Other images are refused, because they would take the mic off the tailnet.</p>");
+#else
     html += F("<div class='card'><h2>Upload compiled file</h2><p class='muted'>Use this when the device has no internet access. Select the matching app-only file such as <code>firmware-app-c3.bin</code>, <code>firmware-app-s3.bin</code>, <code>firmware-app-c5.bin</code>, or <code>firmware-app-c6.bin</code>. Do not upload the USB <code>firmware.bin</code> merged image here.</p>");
+#endif
     html += F("<form id='ota-upload-form' method='post' action='/ota/upload' enctype='multipart/form-data'>");
     html += F("<input type='file' name='firmware' accept='.bin,application/octet-stream' required");
     if (!otaAllowed) html += F(" disabled");
@@ -862,9 +866,16 @@ static void httpOtaUploadDone() {
     }
 }
 
+#ifdef BIRDNET_TS_FORK
+static bool otaUploadFirstChunk = false;
+#endif
+
 static void httpOtaUploadChunk() {
     HTTPUpload &upload = web.upload();
     if (upload.status == UPLOAD_FILE_START) {
+#ifdef BIRDNET_TS_FORK
+        otaUploadFirstChunk = true;
+#endif
         otaUploadOk = false;
         otaUploadBlocked = false;
         otaUploadError = "";
@@ -893,6 +904,16 @@ static void httpOtaUploadChunk() {
             endOtaUpdate(false);
         }
     } else if (upload.status == UPLOAD_FILE_WRITE) {
+#ifdef BIRDNET_TS_FORK
+        if (otaUploadFirstChunk && !forkImageIsOurs(upload.buf, upload.currentSize)) {
+            if (otaUploadError.length() == 0) {
+                otaUploadError = F("This is not a Tailscale fork image. Installing it would take the mic off the tailnet. Upload birdnet-mic-ts.bin.");
+                Update.abort();
+                endOtaUpdate(false);
+            }
+        }
+        otaUploadFirstChunk = false;
+#endif
         if (otaUploadError.length() == 0) {
             if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
                 otaUploadError = String("Flash write failed: ") + Update.errorString();
