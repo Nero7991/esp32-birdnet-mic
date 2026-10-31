@@ -11,6 +11,12 @@ SKETCH_DIR = ROOT / 'esp32-birdnet-mic'
 STUBS = ROOT / 'tests' / 'wifi_ap_stubs'
 
 
+def c_function(source, signature):
+    # C sources contain '{' in character literals, so end at the closing brace in column 0.
+    start = source.index(signature + ' {')
+    return source[start:source.index('\n}\n', start)]
+
+
 def function(source, signature):
     start = source.index(signature + ' {')
     brace = source.index('{', start)
@@ -124,6 +130,100 @@ std::cout << "[" << tailscalePeerPath(4, "direct") << "]\n";
         self.assertIn('"tsnet"', link)
 
 
+MICROLINK_SRC = ROOT / 'idf/libs/microlink/components/microlink/src'
+CJSON = pathlib.Path.home() / 'esp/v5.5/esp-idf/components/json/cJSON'
+
+
+@unittest.skipUnless((CJSON / 'cJSON.c').exists(), 'ESP-IDF cJSON not found')
+class ControlRejectTests(unittest.TestCase):
+    """A revoked key or a removed node must surface as a rejection, not as a network fault."""
+
+    def run_c(self, body):
+        code = '#include "ml_ctrl_reject.h"\n#include <assert.h>\n#include <stdio.h>\n#include <string.h>\n' \
+               'int main(void) {\n' + body + '\nreturn 0;\n}\n'
+        with tempfile.TemporaryDirectory() as temp:
+            c, binary = pathlib.Path(temp) / 't.c', pathlib.Path(temp) / 't'
+            c.write_text(code)
+            subprocess.run(['gcc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-I', str(MICROLINK_SRC), '-I', str(CJSON),
+                            str(c), str(MICROLINK_SRC / 'ml_ctrl_reject.c'), str(CJSON / 'cJSON.c'), '-o', str(binary)],
+                           check=True)
+            return subprocess.run([str(binary)], check=True, capture_output=True, text=True).stdout
+
+    def test_register_error_field(self):
+        out = self.run_c(r'''
+char why[48];
+cJSON *r = cJSON_Parse("{\"User\":{\"ID\":0},\"Error\":\"machine not authorized by tailnet policy\"}");
+assert(ml_ctrl_register_error(r, why, sizeof(why)));
+printf("%s\n", why);
+cJSON_Delete(r);
+r = cJSON_Parse("{\"User\":{\"ID\":601777},\"MachineAuthorized\":true,\"Error\":\"\"}");
+assert(!ml_ctrl_register_error(r, why, sizeof(why)));
+assert(why[0] == 0);
+cJSON_Delete(r);
+r = cJSON_Parse("{\"User\":{\"ID\":601777}}");
+assert(!ml_ctrl_register_error(r, why, sizeof(why)));
+cJSON_Delete(r);
+assert(!ml_ctrl_register_error(NULL, why, sizeof(why)));
+char tiny[8];
+r = cJSON_Parse("{\"Error\":\"invalid key: unable to validate API key\"}");
+assert(ml_ctrl_register_error(r, tiny, sizeof(tiny)));
+assert(strlen(tiny) == 7);
+cJSON_Delete(r);
+''')
+        self.assertEqual(out, 'machine not authorized by tailnet policy\n')
+
+    def test_register_error_never_echoes_a_key(self):
+        out = self.run_c(r'''
+char why[96];
+cJSON *r = cJSON_Parse("{\"Error\":\"bad key tskey-auth-kAbCdEfGhIjKlMnOp\"}");
+assert(ml_ctrl_register_error(r, why, sizeof(why)));
+printf("%s\n", why);
+cJSON_Delete(r);
+''')
+        self.assertNotIn('tskey-', out)
+        self.assertNotIn('kAbCdEf', out)
+        self.assertTrue(out.strip())
+
+    def test_register_error_drops_the_key_id(self):
+        # The control server echoes the key ID: "invalid key: API key <id> not valid".
+        out = self.run_c(r'''
+char why[96];
+cJSON *r = cJSON_Parse("{\"Error\":\"invalid key: API key kAbCdEf123CNTRL not valid\"}");
+assert(ml_ctrl_register_error(r, why, sizeof(why)));
+printf("%s\n", why);
+cJSON_Delete(r);
+''')
+        self.assertEqual(out, 'invalid key\n')
+
+    def test_node_not_found_body(self):
+        self.run_c(r'''
+const char *nf = "node not found\n";
+assert(ml_ctrl_body_node_not_found((const uint8_t *)nf, strlen(nf)));
+assert(ml_ctrl_body_node_not_found((const uint8_t *)nf, 14));
+assert(!ml_ctrl_body_node_not_found((const uint8_t *)nf, 5));
+const char *ok = "{\"Node\":{}}";
+assert(!ml_ctrl_body_node_not_found((const uint8_t *)ok, strlen(ok)));
+assert(!ml_ctrl_body_node_not_found(NULL, 0));
+''')
+
+    def test_coord_reports_rejection(self):
+        coord = (MICROLINK_SRC / 'ml_coord.c').read_text().replace('\r\n', '\n')
+        main = (MICROLINK_SRC / 'microlink.c').read_text().replace('\r\n', '\n')
+        internal = (MICROLINK_SRC.parent / 'include/microlink_internal.h').read_text().replace('\r\n', '\n')
+        cmake = (MICROLINK_SRC.parent / 'CMakeLists.txt').read_text()
+        self.assertIn('"src/ml_ctrl_reject.c"', cmake)
+        self.assertRegex(internal, r'volatile bool ctrl_rejected;')
+        self.assertRegex(internal, r'#define ML_CTRL_REJECTED_RETRY_MS\s+60000')
+        self.assertIn('ml_ctrl_register_error(resp_json', c_function(coord, 'static int do_register(microlink_t *ml, ml_noise_state_t *noise)'))
+        self.assertIn('ml_ctrl_body_node_not_found(', c_function(coord, 'static int do_fetch_peers(microlink_t *ml, ml_noise_state_t *noise)'))
+        self.assertIn('ml_ctrl_body_node_not_found(', c_function(coord, 'static int poll_map_update(microlink_t *ml, ml_noise_state_t *noise)'))
+        self.assertRegex(coord, r'ml->ctrl_rejected = false;\s*\n\s*ml->state = ML_STATE_CONNECTED;')
+        self.assertIn('ml->ctrl_rejected ? ML_CTRL_REJECTED_RETRY_MS', coord)
+        get_state = c_function(main, 'microlink_state_t microlink_get_state(const microlink_t *ml)')
+        self.assertIn('ctrl_rejected', get_state)
+        self.assertIn('ML_STATE_ERROR', get_state)
+
+
 class TailscaleLinkTests(unittest.TestCase):
     def setUp(self):
         self.link = (SKETCH_DIR / 'TailscaleLink.cpp').read_text()
@@ -197,7 +297,7 @@ class TailscaleLinkTests(unittest.TestCase):
         self.assertIn('libs/microlink/components', root_cmake)
         rev = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=ROOT / 'idf' / 'libs' / 'microlink',
                              capture_output=True, text=True, check=True).stdout
-        self.assertTrue(rev.startswith('a8308b3'), rev)  # Nero7991/microlink lwip-core-lock, on 216da33
+        self.assertTrue(rev.startswith('1a31126'), rev)  # Nero7991/microlink lwip-core-lock, on 216da33
         defaults = (ROOT / 'idf' / 'sdkconfig.defaults').read_text()
         self.assertIn('CONFIG_ML_ENABLE_CELLULAR=n', defaults)
         self.assertIn('CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y', defaults)
