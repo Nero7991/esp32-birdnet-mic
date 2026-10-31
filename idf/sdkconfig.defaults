@@ -42,3 +42,13 @@ CONFIG_MBEDTLS_HKDF_C=y
 CONFIG_LWIP_SO_RCVBUF=y
 CONFIG_LWIP_MAX_SOCKETS=16
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=30
+
+# WireGuard encrypts in the lwIP tcpip thread (tiT). The default 3072 bytes overflowed
+# during an RTSP stream over the tailnet (docs/debugging/2026-10-30_tailnet-rtsp-panics.md).
+CONFIG_LWIP_TCPIP_TASK_STACK_SIZE=6144
+
+# MicroLink's ml_wg_mgr task calls lwIP and wireguardif outside the tcpip thread; the fork
+# of MicroLink holds the core lock for those calls. The checker asserts on any raw lwIP
+# call made without the lock (same debugging file).
+CONFIG_LWIP_TCPIP_CORE_LOCKING=y
+CONFIG_LWIP_CHECK_THREAD_SAFETY=y

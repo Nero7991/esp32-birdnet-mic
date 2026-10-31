@@ -44,6 +44,20 @@ inline const char *tailscaleStateName(int state) {
     }
 }
 
+// Text for last_error. Not connected for over 30 s means the tailnet is unreachable;
+// state 6 (error) means the control server refused the node.
+inline const char *tailscaleProblem(int state, unsigned long notConnectedMs) {
+    if (state == 6) return "The Tailscale control server rejected this device. Check the auth key and that the node was not removed.";
+    if (state >= 1 && state <= 5 && state != 4 && notConnectedMs > 30000UL)
+        return "Cannot reach Tailscale. Check that this network has internet access.";
+    return "";
+}
+
+// The peer path is only meaningful while connected; MicroLink keeps cached peers otherwise.
+inline const char *tailscalePeerPath(int state, const char *path) {
+    return state == 4 && path ? path : "";
+}
+
 inline String tailscaleJsonString(const char *text) {
     String out = "\"";
     for (const char *p = text ? text : ""; *p; p++) {

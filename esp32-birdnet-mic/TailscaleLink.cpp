@@ -4,6 +4,7 @@
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include "microlink.h"
+#include "esp_log.h"
 
 extern String mdnsHostname;
 extern void simplePrintln(String message);
@@ -18,6 +19,7 @@ static String tsLastError;
 static microlink_t *tsLink = nullptr;
 static uint32_t tsIpU32 = 0;
 static unsigned long tsLastPollMs = 0;
+static unsigned long tsNotConnectedSinceMs = 0;
 
 void tailscaleLoad() {
     Preferences prefs;
@@ -85,6 +87,8 @@ void tailscaleBegin() {
         return;
     }
     if (tsLink) return;
+    // ml_wg_mgr logs every WireGuard packet at INFO, from the tcpip thread.
+    esp_log_level_set("ml_wg_mgr", ESP_LOG_WARN);
     String name = tsHostname.length() ? tsHostname : mdnsHostname;
     static char deviceName[64];
     strlcpy(deviceName, name.c_str(), sizeof(deviceName));
@@ -103,12 +107,15 @@ void tailscaleBegin() {
         return;
     }
     if (microlink_start(tsLink) != ESP_OK) {
+        microlink_destroy(tsLink);
+        tsLink = nullptr;
         tsState = 6;
         tsLastError = "start failed";
         simplePrintln("Tailscale: start failed");
         return;
     }
     tsState = (int)microlink_get_state(tsLink);
+    tsNotConnectedSinceMs = millis();
     simplePrintln("Tailscale: starting as " + name);
 }
 
@@ -132,11 +139,12 @@ void tailscaleLoop() {
         }
     }
     if (state != tsState) {
+        if (state != 4 && tsState == 4) tsNotConnectedSinceMs = now;
         tsState = state;
         simplePrintln(String("Tailscale: ") + tailscaleStateName(state));
-        if (state == 6) tsLastError = "control server rejected the node or is unreachable";
-        else if (state == 4) tsLastError = "";
     }
+    if (state == 4) tsNotConnectedSinceMs = now;
+    tsLastError = tailscaleProblem(state, now - tsNotConnectedSinceMs);
     String path;
     int peers = microlink_get_peer_count(tsLink);
     for (int i = 0; i < peers; i++) {
@@ -145,7 +153,7 @@ void tailscaleLoop() {
         path = info.direct_path ? "direct" : "derp";
         if (info.direct_path) break;
     }
-    tsPeerPath = path;
+    tsPeerPath = tailscalePeerPath(state, path.c_str());
 }
 
 IPAddress tailscaleIp() {

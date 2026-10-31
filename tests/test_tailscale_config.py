@@ -93,6 +93,23 @@ std::cout << tailscaleStatusJson(s);
             self.assertRegex(use, r'tailscaleKeyLooksValid\(' + var + r'\.c_str\(\)\)|tailscaleSaveKey\(' + var +
                              r'\)|' + var + r'\.length\(\)|' + var + r'\.trim\(\)', use)
 
+    def test_problem_text_and_peer_path(self):
+        out = self.run_native(r'''
+std::cout << "[" << tailscaleProblem(4, 999999) << "]\n";
+std::cout << "[" << tailscaleProblem(5, 10000) << "]\n";
+std::cout << "[" << tailscaleProblem(5, 31000) << "]\n";
+std::cout << "[" << tailscaleProblem(1, 31000) << "]\n";
+std::cout << "[" << tailscaleProblem(6, 0) << "]\n";
+std::cout << "[" << tailscalePeerPath(5, "derp") << "]\n";
+std::cout << "[" << tailscalePeerPath(4, "direct") << "]\n";
+''')
+        self.assertEqual(out.splitlines(), [
+            '[]', '[]',
+            '[Cannot reach Tailscale. Check that this network has internet access.]',
+            '[Cannot reach Tailscale. Check that this network has internet access.]',
+            '[The Tailscale control server rejected this device. Check the auth key and that the node was not removed.]',
+            '[]', '[direct]'])
+
     def test_routes_and_status_are_fork_only(self):
         web = (SKETCH_DIR / 'WebUI.cpp').read_text()
         sketch = (SKETCH_DIR / 'esp32-birdnet-mic.ino').read_text()
@@ -122,6 +139,11 @@ class TailscaleLinkTests(unittest.TestCase):
         self.assertIn('TS_STATE_NO_KEY', begin[nokey:init])
         self.assertIn('.auth_key = tsAuthKey', begin)
 
+    def test_loop_reports_problem_and_live_path(self):
+        loop = function(self.link, 'void tailscaleLoop()')
+        self.assertIn('tsLastError = tailscaleProblem(', loop)
+        self.assertIn('tsPeerPath = tailscalePeerPath(', loop)
+
     def test_no_restart_on_failure(self):
         self.assertNotIn('ESP.restart', self.link)
         self.assertNotIn('esp_restart', self.link)
@@ -132,12 +154,50 @@ class TailscaleLinkTests(unittest.TestCase):
         loop = function(sketch, 'void loop()')
         self.assertRegex(loop, r'#ifdef BIRDNET_TS_FORK\s*\n\s*tailscaleLoop\(\);\s*\n\s*#endif')
 
+    def test_tcpip_stack_fits_wireguard(self):
+        # WireGuard encrypts in the lwIP tcpip thread (tiT); 3072 overflowed under a stream.
+        defaults = (ROOT / 'idf' / 'sdkconfig.defaults').read_text()
+        m = re.search(r'^CONFIG_LWIP_TCPIP_TASK_STACK_SIZE=(\d+)$', defaults, re.M)
+        self.assertIsNotNone(m)
+        self.assertGreaterEqual(int(m.group(1)), 6144)
+
+    def test_per_packet_logs_quiet(self):
+        begin = function(self.link, 'void tailscaleBegin()')
+        self.assertIn('esp_log_level_set("ml_wg_mgr", ESP_LOG_WARN)', begin)
+
+    def test_microlink_calls_lwip_under_core_lock(self):
+        # ml_wg_mgr_task feeds packets into lwIP outside the tcpip thread; without the core
+        # lock this asserted in lwip_netconn_do_writemore (docs/debugging/2026-10-30_tailnet-rtsp-panics.md).
+        defaults = (ROOT / 'idf' / 'sdkconfig.defaults').read_text()
+        self.assertIn('CONFIG_LWIP_TCPIP_CORE_LOCKING=y', defaults)
+        src = (ROOT / 'idf/libs/microlink/components/microlink/src/ml_wg_mgr.c').read_text().replace('\r\n', '\n')
+        self.assertIn('#include "ml_lwip_lock.h"', src)
+        src = re.sub(r'/\*.*?\*/', lambda m: '\n' * m.group(0).count('\n'), src, flags=re.S)
+        depth, unlocked = 0, []
+        lines = src.splitlines()
+        for n, line in enumerate(lines, 1):
+            code = line.split('//', 1)[0]
+            if 'ML_LWIP_LOCK();' in code:
+                depth += 1
+            if 'ML_LWIP_UNLOCK();' in code:
+                # An unlock on an early-return path leaves the function, not the region.
+                following = [l.strip() for l in lines[n:n + 3] if l.strip()]
+                if not any(l.startswith('return') for l in following[:2]):
+                    depth -= 1
+            if re.search(r'\bwireguardif_(?!peer_init\b)\w+\s*\(', code) and not code.lstrip().startswith(('extern', 'static')) and depth <= 0:
+                unlocked.append(f'{n}: {line.strip()}')
+        self.assertEqual(unlocked, [])
+
+    def test_wireguard_rx_not_printed_per_packet(self):
+        src = (ROOT / 'idf/libs/microlink/components/wireguard_lwip/src/wireguardif.c').read_text()
+        self.assertNotRegex(src, r'(?m)^\s*printf\("\[WG_RX\] type=')
+
     def test_microlink_component_pinned(self):
         root_cmake = (ROOT / 'idf' / 'CMakeLists.txt').read_text()
         self.assertIn('libs/microlink/components', root_cmake)
         rev = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=ROOT / 'idf' / 'libs' / 'microlink',
                              capture_output=True, text=True, check=True).stdout
-        self.assertTrue(rev.startswith('216da33'), rev)
+        self.assertTrue(rev.startswith('a8308b3'), rev)  # Nero7991/microlink lwip-core-lock, on 216da33
         defaults = (ROOT / 'idf' / 'sdkconfig.defaults').read_text()
         self.assertIn('CONFIG_ML_ENABLE_CELLULAR=n', defaults)
         self.assertIn('CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y', defaults)

@@ -6,4 +6,5 @@
 	url = https://github.com/knolleary/pubsubclient
 [submodule "idf/libs/microlink"]
 	path = idf/libs/microlink
-	url = https://github.com/CamM2325/microlink
+	url = https://github.com/Nero7991/microlink
+	branch = lwip-core-lock
