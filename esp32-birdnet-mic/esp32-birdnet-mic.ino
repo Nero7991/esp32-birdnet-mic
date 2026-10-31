@@ -3483,6 +3483,13 @@ static bool anyRtspSessionStreaming(uint8_t profileIndex = 255) {
     return false;
 }
 
+// The address this client connected to: the LAN IP, or the tailnet IP over Tailscale.
+static String rtspLocalIp(ClientSession &session) {
+    IPAddress local = session.client.localIP();
+    if (local == IPAddress((uint32_t)0)) local = WiFi.localIP();
+    return local.toString();
+}
+
 static void parseTransportHeader(ClientSession &session, const String &request, String &transportResponse, uint8_t clientIdx) {
     // Auto-select transport based on target: BirdNET-Go=TCP, BirdNET-Pi=UDP
     bool forceTcp = (streamProfiles[session.profileIndex].target == STREAM_TARGET_BIRDNET_GO);
@@ -3515,7 +3522,7 @@ static void parseTransportHeader(ClientSession &session, const String &request, 
         session.rtcpSocket.begin(session.serverRtpPort + 1);
         transportResponse = "RTP/AVP/UDP;unicast;client_port=" + String(session.clientRtpPort) + "-" + String(session.clientRtpPort + 1);
         transportResponse += ";server_port=" + String(session.serverRtpPort) + "-" + String(session.serverRtpPort + 1);
-        transportResponse += ";source=" + WiFi.localIP().toString();
+        transportResponse += ";source=" + rtspLocalIp(session);
         transportResponse += ";ssrc=" + String(rtpSSRC, HEX);
     } else {
         session.transport = TRANSPORT_TCP;
@@ -3563,7 +3570,7 @@ void handleRTSPCommand(ClientSession &session, String request, uint8_t clientIdx
         response += "Public: OPTIONS, DESCRIBE, SETUP, PLAY, TEARDOWN, GET_PARAMETER\r\n\r\n";
 
     } else if (request.startsWith("DESCRIBE")) {
-        String ip = WiFi.localIP().toString();
+        String ip = rtspLocalIp(session);
         String streamPath = (session.profileIndex == 1) ? "/audio2" : "/audio1";
         String sdp = "v=0\r\n";
         sdp += "o=- 0 0 IN IP4 " + ip + "\r\n";
@@ -3592,7 +3599,7 @@ void handleRTSPCommand(ClientSession &session, String request, uint8_t clientIdx
         response += "Transport: " + transportResponse + "\r\n\r\n";
 
     } else if (request.startsWith("PLAY")) {
-        String ip = WiFi.localIP().toString();
+        String ip = rtspLocalIp(session);
         String streamPath = (session.profileIndex == 1) ? "/audio2" : "/audio1";
         response += "RTSP/1.0 200 OK\r\n";
         response += "CSeq: " + cseq + "\r\n";

@@ -96,5 +96,36 @@ class RtspParserTests(unittest.TestCase):
             subprocess.run([str(binary)], check=True, timeout=10)
 
 
+def _function(source, signature):
+    start = source.index(signature + ' {')
+    brace = source.index('{', start)
+    depth, end = 1, brace + 1
+    while depth:
+        depth += (source[end] == '{') - (source[end] == '}')
+        end += 1
+    return source[start:end]
+
+
+class RtspAddressTests(unittest.TestCase):
+    """RTSP replies must name the address the client connected to (LAN or tailnet)."""
+
+    def setUp(self):
+        self.sketch = (ROOT / 'esp32-birdnet-mic/esp32-birdnet-mic.ino').read_text()
+        self.web = (ROOT / 'esp32-birdnet-mic/WebUI.cpp').read_text()
+
+    def test_rtsp_urls_use_socket_address(self):
+        helper = _function(self.sketch, 'static String rtspLocalIp(ClientSession &session)')
+        self.assertIn('session.client.localIP()', helper)
+        for sig in ('void handleRTSPCommand(ClientSession &session, String request, uint8_t clientIdx)',
+                    'static void parseTransportHeader(ClientSession &session, const String &request, String &transportResponse, uint8_t clientIdx)'):
+            body = _function(self.sketch, sig)
+            self.assertNotIn('WiFi.localIP()', body, sig)
+        self.assertIn('rtspLocalIp(session)', _function(self.sketch, 'void handleRTSPCommand(ClientSession &session, String request, uint8_t clientIdx)'))
+
+    def test_status_has_tailnet_urls(self):
+        status = _function(self.web, 'static void httpStatus()')
+        self.assertRegex(status, r'#ifdef BIRDNET_TS_FORK[\s\S]*?tailscaleIp\(\)[\s\S]*?stream1_url_tailnet[\s\S]*?stream2_url_tailnet[\s\S]*?#endif')
+
+
 if __name__ == '__main__':
     unittest.main()

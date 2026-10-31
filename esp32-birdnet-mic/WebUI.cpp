@@ -939,6 +939,13 @@ static void httpStatus() {
     json += "\"stream2_url_ip\":\"rtsp://" + WiFi.localIP().toString() + ":8554/audio2\",";
     json += "\"stream1_url_mdns\":\"rtsp://" + mdnsHostname + ".local:8554/audio1\",";
     json += "\"stream2_url_mdns\":\"rtsp://" + mdnsHostname + ".local:8554/audio2\",";
+#ifdef BIRDNET_TS_FORK
+    if (tailscaleIp() != IPAddress((uint32_t)0)) {
+        String tsIp = tailscaleIp().toString();
+        json += "\"stream1_url_tailnet\":\"rtsp://" + tsIp + ":8554/audio1\",";
+        json += "\"stream2_url_tailnet\":\"rtsp://" + tsIp + ":8554/audio2\",";
+    }
+#endif
     json += "\"stream1_target\":" + String((uint32_t)streamProfiles[0].target) + ",";
     json += "\"stream2_target\":" + String((uint32_t)streamProfiles[1].target) + ",";
     json += "\"stream1_enabled\":" + String(streamEnabled[0]?"true":"false") + ",";
