@@ -47,7 +47,8 @@ int main(){
             subprocess.run([str(binary)], check=True, timeout=30)
 
     def test_psram_only_on_c5_with_internal_fallbacks(self):
-        self.assertIn('#if defined(CONFIG_IDF_TARGET_ESP32C5) && CONFIG_SPIRAM\n#define AUDIO_RING_IN_PSRAM 1', SKETCH)
+        # Upstream builds: C5 only. The Tailscale fork (BIRDNET_TS_FORK) also uses it on the S3.
+        self.assertIn('#if (defined(CONFIG_IDF_TARGET_ESP32C5) || defined(BIRDNET_TS_FORK)) && CONFIG_SPIRAM\n#define AUDIO_RING_IN_PSRAM 1', SKETCH)
         start = SKETCH[SKETCH.index('bool startAudioProducer() {'):]
         # PSRAM first, then the unchanged internal reserve path as fallback.
         self.assertLess(start.index('createPsramAudioRing(requested)'), start.index('audioreserve::fit(requested'))
